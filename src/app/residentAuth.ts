@@ -12,6 +12,10 @@ export interface ResidentAccount {
   createdAt: string;
 }
 
+export type ResidentRegistrationResult =
+  | { status: "confirmation-required"; email: string }
+  | { status: "signed-in"; account: ResidentAccount };
+
 function toResidentAccount(profile: {
   id: string;
   first_name: string;
@@ -71,30 +75,41 @@ export async function updateResidentProfile(input: {
 export async function registerResidentAccount(input: {
   firstName: string;
   lastName: string;
-      email: string;
-      contactNumber: string;
-      address: string;
-      password: string;
-}): Promise<ResidentAccount> {
-      const client = requireSupabase();
-      const { data, error } = await client.auth.signUp({
-        email: input.email.trim().toLowerCase(),
-        password: input.password,
-        options: {
-          data: {
-            first_name: input.firstName.trim(),
-            last_name: input.lastName.trim(),
-            contact_number: input.contactNumber.trim(),
-            address: input.address.trim(),
-          },
-        },
-      });
-      if (error) throw error;
-      if (!data.user) throw new Error("Account creation did not return a user. Please try again.");
-      if (!data.session) {
-        throw new Error("Supabase is still requiring email confirmation. Turn off email confirmations in Authentication settings to allow immediate registration.");
-      }
-      return getResidentProfile(data.user.id);
+  email: string;
+  contactNumber: string;
+  address: string;
+  password: string;
+}): Promise<ResidentRegistrationResult> {
+  const email = input.email.trim().toLowerCase();
+  const { data, error } = await requireSupabase().auth.signUp({
+    email,
+    password: input.password,
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: {
+        first_name: input.firstName.trim(),
+        last_name: input.lastName.trim(),
+        contact_number: input.contactNumber.trim(),
+        address: input.address.trim(),
+      },
+    },
+  });
+  if (error) throw error;
+  if (!data.user) throw new Error("Account creation did not return a user. Please try again.");
+  if (data.user.identities?.length === 0) {
+    throw new Error("An account with this email may already exist. Try signing in or use another email.");
+  }
+  if (!data.session) return { status: "confirmation-required", email };
+  return { status: "signed-in", account: await getResidentProfile(data.user.id) };
+}
+
+export async function resendResidentConfirmation(email: string): Promise<void> {
+  const { error } = await requireSupabase().auth.resend({
+    type: "signup",
+    email: email.trim().toLowerCase(),
+    options: { emailRedirectTo: window.location.origin },
+  });
+  if (error) throw error;
 }
 
 export async function signInResident(email: string, password: string): Promise<ResidentAccount> {

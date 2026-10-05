@@ -4,6 +4,7 @@ import { publicAsset } from "../publicAsset";
 import { formatResidentAddress, RESIDENT_BARANGAY_ADDRESS } from "../residentAddress";
 import {
   registerResidentAccount,
+  resendResidentConfirmation,
   ResidentAccount,
   signInResident,
   signInStaff,
@@ -39,7 +40,7 @@ function FocusInput({ value, onChange, placeholder, type = "text" }: {
   );
 }
 
-type View = "login" | "register";
+type View = "login" | "register" | "confirmation";
 
 export default function AuthPage({
   onLogin,
@@ -51,6 +52,8 @@ export default function AuthPage({
   const [password, setPassword] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPass, setAdminPass] = useState("");
+  const [confirmationEmail, setConfirmationEmail] = useState("");
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
   const [reg, setReg] = useState({ firstName: "", lastName: "", email: "", contact: "", address: "", password: "", confirm: "" });
   const handleResidentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,13 +86,31 @@ export default function AuthPage({
     if (rPass !== confirm) { toast.error("Passwords do not match"); return; }
     if (rPass.length < 8) { toast.error("Use a password with at least 8 characters."); return; }
     try {
-      const account = await registerResidentAccount({
+      const result = await registerResidentAccount({
         firstName, lastName, email: rEmail, contactNumber: contact, address: formatResidentAddress(address), password: rPass,
       });
+      if (result.status === "confirmation-required") {
+        setConfirmationEmail(result.email);
+        setView("confirmation");
+        toast.success("Check your email to confirm your account.");
+        return;
+      }
       toast.success("Resident account created. You are now signed in.");
-      onLogin("user", account.name, account);
+      onLogin("user", result.account.name, result.account);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to create the account.");
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendingConfirmation(true);
+    try {
+      await resendResidentConfirmation(confirmationEmail);
+      toast.success("Confirmation email sent. Check your inbox and spam folder.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to resend the confirmation email.");
+    } finally {
+      setResendingConfirmation(false);
     }
   };
 
@@ -142,6 +163,36 @@ export default function AuthPage({
             >
               Back to public site
             </button>
+          )}
+
+          {/* EMAIL CONFIRMATION */}
+          {view === "confirmation" && (
+            <div role="status" className="rounded border border-[#c9d1ca] bg-white p-6">
+              <div className="mb-3 text-[9px] font-bold tracking-[0.22em] text-[#6e6b65]">CHECK YOUR EMAIL</div>
+              <h2 className="mb-2 text-2xl font-bold tracking-tight">Confirm your account</h2>
+              <p className="text-sm leading-relaxed text-[#53645b]">
+                We sent a confirmation link to <strong className="break-all text-[#123323]">{confirmationEmail}</strong>.
+                Open the email and click the link to verify your address. You can sign in after confirmation.
+              </p>
+              <p className="mt-3 text-xs leading-relaxed text-[#6e6b65]">
+                If you don’t see it, check your spam folder or request another email.
+              </p>
+              <button
+                type="button"
+                onClick={() => void handleResendConfirmation()}
+                disabled={resendingConfirmation || !isSupabaseConfigured}
+                className="mt-5 w-full border border-[#123323] py-3 text-[11px] font-bold tracking-[0.12em] text-[#123323] transition-colors hover:bg-[#f0f5f1] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {resendingConfirmation ? "SENDING..." : "RESEND CONFIRMATION EMAIL"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("login")}
+                className="mt-3 w-full py-2 text-sm font-bold text-[#123323] underline underline-offset-4"
+              >
+                Back to sign in
+              </button>
+            </div>
           )}
 
           {/* LOGIN */}
@@ -210,7 +261,7 @@ export default function AuthPage({
                 <p className="text-[11px]" style={{ color: "#6e6b65" }}>Register to access barangay services online</p>
               </div>
               <div className="mb-4 rounded border border-[#c9d1ca] bg-[#f7faf7] px-3 py-2 text-xs leading-relaxed text-[#34483a]">
-                Create your account and start using the resident portal immediately. No email confirmation or staff approval is required.
+                You’ll need to confirm your email address before signing in. Use an email account you can access.
               </div>
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
