@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
+import { publicAsset } from "../publicAsset";
 
 interface Message {
   id: number;
@@ -40,22 +41,12 @@ const quickTopics = [
 
 function AssistantAvatar({ small = false }: { small?: boolean }) {
   return (
-    <svg
-      viewBox="0 0 40 40"
-      role="img"
-      aria-label="Barangay assistant character"
-      className={small ? "h-6 w-6" : "h-8 w-8"}
-    >
-      <path d="M20 3v4" stroke="#123323" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="20" cy="3" r="2" fill="#c7782c" />
-      <rect x="7" y="9" width="26" height="20" rx="7" fill="#123323" />
-      <path d="M10 28h20l3 6H7z" fill="#2d6947" />
-      <circle cx="15" cy="18" r="2" fill="#fff" />
-      <circle cx="25" cy="18" r="2" fill="#fff" />
-      <path d="M16 23q4 4 8 0" fill="none" stroke="#dcebdc" strokeWidth="1.7" strokeLinecap="round" />
-      <circle cx="5" cy="19" r="2" fill="#c7782c" />
-      <circle cx="35" cy="19" r="2" fill="#c7782c" />
-    </svg>
+    <img
+      src={publicAsset("banoy-chatbot.png")}
+      alt="Banoy, the Barangay Lagasit chatbot mascot"
+      className={`${small ? "h-7 w-7" : "h-9 w-9"} rounded-full object-cover`}
+      style={{ objectPosition: "8% center" }}
+    />
   );
 }
 
