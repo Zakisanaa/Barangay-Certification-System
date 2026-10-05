@@ -1,6 +1,7 @@
-import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, LogOut, BookOpen, X } from "lucide-react";
+import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, MessageSquareText, UserRound } from "lucide-react";
+import { publicAsset } from "../publicAsset";
 
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "docs";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news";
 
 interface SidebarProps {
   activePage: Page;
@@ -8,20 +9,32 @@ interface SidebarProps {
   userName: string;
   userType: "user" | "admin";
   userId: string;
-  onLogout: () => void;
   isOpen: boolean;
   onClose: () => void;
 }
 
 const navItems = [
   { id: "home" as Page, label: "Home", icon: Home },
-  { id: "chat" as Page, label: "Chat", icon: MessageSquare },
+  { id: "chat" as Page, label: "LagaBot", icon: MessageSquare },
   { id: "book" as Page, label: "Book", icon: Calendar },
   { id: "dashboard" as Page, label: "Dashboard", icon: LayoutDashboard },
-  { id: "docs" as Page, label: "Prototype", icon: BookOpen },
+  { id: "schedule" as Page, label: "Walk-in schedule", icon: Clock },
+  { id: "concerns" as Page, label: "Concerns & feedback", icon: MessageSquareText },
+  { id: "profile" as Page, label: "My profile", icon: UserRound },
 ];
 
-export default function Sidebar({ activePage, setActivePage, userName, userType, userId, onLogout, isOpen, onClose }: SidebarProps) {
+const staffNavItems = [
+  { id: "admin" as Page, label: "Admin dashboard", icon: Shield },
+  { id: "staff-concerns" as Page, label: "Concerns & feedback", icon: MessageSquareText },
+  { id: "staff-residents" as Page, label: "Resident masterlist", icon: UserRound },
+  { id: "staff-schedule" as Page, label: "Walk-in schedule", icon: Clock },
+  { id: "staff-news" as Page, label: "Landing page news", icon: MessageSquare },
+];
+
+export default function Sidebar({ activePage, setActivePage, userName, userType, userId, isOpen, onClose }: SidebarProps) {
+  const visibleNavItems = userType === "admin"
+    ? staffNavItems
+    : navItems;
   const handleNav = (page: Page) => {
     setActivePage(page);
     onClose();
@@ -51,7 +64,7 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
         {/* Logo + mobile close */}
         <div className="flex items-center gap-3 px-4 py-4" style={{ borderBottom: "1px solid #c4c0b9" }}>
           <img
-            src="officials/brgylagasit.png"
+            src={publicAsset("officials/brgylagasit.png")}
             alt="Barangay Lagasit logo"
             className="w-9 h-9 object-contain rounded-full flex-shrink-0"
           />
@@ -69,14 +82,17 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
 
         {/* Nav */}
         <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
-          {navItems.map((item) => {
+          <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#758179]">
+            {userType === "admin" ? "Staff workspace" : "Resident services"}
+          </div>
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activePage === item.id;
             return (
               <button
                 key={item.id}
                 onClick={() => handleNav(item.id)}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] tracking-[0.08em] font-bold text-left transition-all duration-150"
+                className="w-full flex min-h-11 items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-left transition-all duration-150"
                 style={{
                   background: isActive ? "#f0ede8" : "transparent",
                   color: isActive ? "#0f0e0c" : "#6e6b65",
@@ -90,35 +106,10 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
           })}
         </nav>
 
-        {/* Admin Access */}
-        <div className="px-4 py-3" style={{ borderTop: "1px solid #c4c0b9" }}>
-          <div className="text-[9px] font-bold tracking-[0.15em] mb-2.5" style={{ color: "#9e9b96" }}>
-            ADMIN_ACCESS
-          </div>
-          {userType === "admin" ? (
-            <button
-              onClick={() => handleNav("admin")}
-              className="w-full flex items-center gap-2 py-2 text-[11px] tracking-[0.06em] text-left transition-colors"
-              style={{ color: activePage === "admin" ? "#0f0e0c" : "#6e6b65", fontWeight: activePage === "admin" ? 700 : 400 }}
-            >
-              <Shield className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>Admin</span>
-              <span
-                className="ml-auto text-white text-[8px] px-1.5 py-0.5 font-bold tracking-[0.1em]"
-                style={{ background: "#0f0e0c" }}
-              >
-                STAFF
-              </span>
-            </button>
-          ) : (
-            <div className="text-[10px] italic" style={{ color: "#c4c0b9" }}>No admin access</div>
-          )}
-        </div>
-
         {/* Resident User */}
         <div className="px-4 py-3" style={{ borderTop: "1px solid #c4c0b9" }}>
           <div className="text-[9px] font-bold tracking-[0.15em] mb-2.5" style={{ color: "#9e9b96" }}>
-            RESIDENT USER
+            {userType === "admin" ? "STAFF USER" : "RESIDENT USER"}
           </div>
           <div className="flex items-center gap-2.5 mb-2.5">
             <div
@@ -132,14 +123,6 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
               <div className="text-[9px] tracking-[0.06em]" style={{ color: "#9e9b96" }}>ID: {userId}</div>
             </div>
           </div>
-          <button
-            onClick={() => { onLogout(); onClose(); }}
-            className="flex items-center gap-1.5 text-[9px] font-bold tracking-[0.1em] transition-colors hover:text-foreground"
-            style={{ color: "#9e9b96" }}
-          >
-            <LogOut className="w-3 h-3" />
-            LOGOUT
-          </button>
         </div>
       </aside>
     </>

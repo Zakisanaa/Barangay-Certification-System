@@ -24,7 +24,7 @@ const knowledgeBase: Record<string, string> = {
   "office hours":
     "Barangay Office Schedule:\n\nMonday to Friday: 8:00 AM – 5:00 PM\nClosed on weekends and public holidays\nLunch break: 12:00 PM – 1:00 PM\n\nBest time to visit: 8:00–11:00 AM to avoid long queues.",
   "fees":
-    "Certificate Fees:\n\n₱50.00  —  Barangay Clearance\n₱30.00  —  Certificate of Residency\nFREE    —  Certificate of Indigency\n₱200.00 —  Business Permit Clearance\n₱30.00  —  Good Moral Certificate\n\nPayment: Cash only at the barangay office.",
+    "Fees and payment methods can change and have not been confirmed in this demo. Please verify the current amount with the Barangay Hall before making a payment.",
 };
 
 const quickTopics = [
@@ -37,6 +37,27 @@ const quickTopics = [
   "Office Hours",
   "Fees & Charges",
 ];
+
+function AssistantAvatar({ small = false }: { small?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 40 40"
+      role="img"
+      aria-label="Barangay assistant character"
+      className={small ? "h-6 w-6" : "h-8 w-8"}
+    >
+      <path d="M20 3v4" stroke="#123323" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="20" cy="3" r="2" fill="#c7782c" />
+      <rect x="7" y="9" width="26" height="20" rx="7" fill="#123323" />
+      <path d="M10 28h20l3 6H7z" fill="#2d6947" />
+      <circle cx="15" cy="18" r="2" fill="#fff" />
+      <circle cx="25" cy="18" r="2" fill="#fff" />
+      <path d="M16 23q4 4 8 0" fill="none" stroke="#dcebdc" strokeWidth="1.7" strokeLinecap="round" />
+      <circle cx="5" cy="19" r="2" fill="#c7782c" />
+      <circle cx="35" cy="19" r="2" fill="#c7782c" />
+    </svg>
+  );
+}
 
 function getBotResponse(query: string): string {
   const lower = query.toLowerCase();
@@ -60,7 +81,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Hello! I am the Barangay AI Assistant. I can answer questions about certifications, requirements, fees, and appointment schedules. How can I help you today?",
+      text: "Hello! I'm LagaBot, Barangay Lagasit's FAQ assistant. I can help with common questions using the information available in this FAQ. How can I help you today?",
       sender: "bot",
       timestamp: new Date(),
     },
@@ -101,7 +122,7 @@ export default function ChatPage() {
         <div className="px-5 py-4" style={{ borderBottom: "1px solid #c4c0b9" }}>
           <div className="mb-2 text-[10px] font-bold tracking-[0.18em] text-[#51635d] uppercase">Quick Questions</div>
           <p className="text-[10px] leading-relaxed text-[#53645b]">
-            Tap a topic to get an instant answer from the AI assistant.
+            Tap a topic for a quick answer from the Barangay FAQ.
           </p>
         </div>
 
@@ -122,9 +143,9 @@ export default function ChatPage() {
         </div>
 
         <div className="px-5 py-4" style={{ borderTop: "1px solid #c4c0b9", background: "#f5f3f0" }}>
-          <div className="mb-1.5 text-[9px] font-bold tracking-[0.15em] text-[#51635d] uppercase">AI System Info</div>
+          <div className="mb-1.5 text-[9px] font-bold tracking-[0.15em] text-[#51635d] uppercase">LagaBot · FAQ assistant</div>
           <p className="text-[9px] leading-relaxed text-[#53645b]">
-            Powered by Barangay Knowledge Base. For legal matters, consult the Barangay Captain directly.
+            This demo matches questions to a fixed FAQ; it is not connected to an AI service. Confirm requirements and fees with the Barangay Hall.
           </p>
         </div>
       </div>
@@ -142,12 +163,12 @@ export default function ChatPage() {
               className="w-9 h-9 flex items-center justify-center text-sm flex-shrink-0"
               style={{ background: "#f5f3f0", border: "1px solid #c4c0b9" }}
             >
-              🤖
+              <AssistantAvatar />
             </div>
             <div>
-              <div className="text-[11px] font-bold tracking-[0.12em] text-[#122d1f] uppercase">Barangay AI Assistant</div>
+              <div className="text-[11px] font-bold tracking-[0.12em] text-[#122d1f] uppercase">LagaBot</div>
               <div className="mt-0.5 text-[10px] text-[#53645b]">
-                Automated inquiry system — online
+                FAQ answers — available in this browser
               </div>
             </div>
           </div>
@@ -169,7 +190,7 @@ export default function ChatPage() {
                   className="w-8 h-8 flex items-center justify-center text-sm flex-shrink-0 mt-0.5"
                   style={{ background: "#f5f3f0", border: "1px solid #c4c0b9" }}
                 >
-                  🤖
+                  <AssistantAvatar small />
                 </div>
               )}
               <div className={`flex flex-col max-w-[68%] ${msg.sender === "user" ? "items-end" : "items-start"}`}>
@@ -187,7 +208,7 @@ export default function ChatPage() {
                   className="text-[9px] font-bold tracking-[0.08em] mt-1.5"
                   style={{ color: "#9e9b96" }}
                 >
-                  {msg.sender === "bot" ? "AI ASSISTANT" : "YOU"} · {fmt(msg.timestamp)}
+                  {msg.sender === "bot" ? "LAGABOT" : "YOU"} · {fmt(msg.timestamp)}
                 </div>
               </div>
               {msg.sender === "user" && (
@@ -207,7 +228,7 @@ export default function ChatPage() {
                 className="w-8 h-8 flex items-center justify-center text-sm flex-shrink-0"
                 style={{ background: "#f5f3f0", border: "1px solid #c4c0b9" }}
               >
-                🤖
+                <AssistantAvatar small />
               </div>
               <div
                 className="px-5 py-3.5"
@@ -262,7 +283,7 @@ export default function ChatPage() {
             </button>
           </form>
           <p className="text-[9px] mt-2.5 tracking-[0.06em]" style={{ color: "#bf6318" }}>
-            AI responses are informational only. For official transactions, visit the Barangay Hall.
+            FAQ answers are informational and may be incomplete. Confirm official requirements and fees with the Barangay Hall.
           </p>
         </div>
       </div>

@@ -1,6 +1,15 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
+import {
+  addAppointmentRequest,
+  AppointmentRequest,
+  DeliveryFormat,
+  getAppointmentRequests,
+  removeSchoolIdImage,
+  uploadSchoolIdImage,
+} from "../portalData";
+import { ResidentAccount } from "../residentAuth";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay,
   isSameDay, isWeekend, isBefore, startOfDay, addMonths, subMonths,
@@ -13,42 +22,80 @@ const certificateTypes = [
   "Business Permit Clearance",
   "Good Moral Certificate",
   "Community Tax Certificate (Cedula)",
+  "First-Time Job Seeker Certificate",
+  "Certificate of No Business",
+  "Certificate of No Property",
+  "Other barangay document",
 ];
 
+const validIdTypes = [
+  "Philippine National ID (PhilID)",
+  "Driver's License",
+  "Passport",
+  "UMID",
+  "PRC ID",
+  "Postal ID",
+  "Voter's ID",
+  "Senior Citizen ID",
+  "PWD ID",
+  "Barangay ID",
+  "School ID",
+  "Other government-issued ID",
+];
+
+const schoolIdType = "School ID";
+const maxSchoolIdImageBytes = 5 * 1024 * 1024;
+const schoolIdImageTypes = ["image/jpeg", "image/png", "image/webp"];
+
 type Step = 1 | 2 | 3 | 4;
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns";
 
 interface FormData {
   fullName: string;
   address: string;
-  voterId: string;
+  validIdType: string;
+  validIdNumber: string;
   requestType: string;
+  otherRequestType: string;
   purpose: string;
   date: Date | null;
+  timeSlot: string;
+  deliveryFormat: DeliveryFormat | "";
 }
 
 const steps = [
   { num: 1, id: "INFO", label: "Personal Information" },
-  { num: 2, id: "TYPE", label: "Request Type & Purpose" },
+  { num: 2, id: "TYPE", label: "Document & Purpose" },
   { num: 3, id: "DATE", label: "Schedule Appointment" },
   { num: 4, id: "SUMMARY", label: "Review & Submit" },
+];
+
+const timeSlots = [
+  "8:00 AM - 9:00 AM",
+  "9:00 AM - 10:00 AM",
+  "10:00 AM - 11:00 AM",
+  "11:00 AM - 12:00 PM",
+  "1:00 PM - 2:00 PM",
+  "2:00 PM - 3:00 PM",
+  "3:00 PM - 4:00 PM",
 ];
 
 function StepIndicator({ current }: { current: Step }) {
   return (
     <div
-      className="flex-shrink-0 bg-white"
-      style={{ width: 180, border: "1px solid #c4c0b9" }}
+      className="w-full flex-shrink-0 bg-white md:w-[180px]"
+      style={{ border: "1px solid #c4c0b9" }}
     >
       <div
         className="px-4 py-3"
         style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
       >
-        <span className="text-[9px] font-bold tracking-[0.18em]" style={{ color: "#9e9b96" }}>
-          STEP_INDICATOR
+        <span className="text-xs font-bold tracking-wide" style={{ color: "#6e6b65" }}>
+          REQUEST STEPS
         </span>
       </div>
 
-      <div className="p-3 space-y-0">
+      <div className="grid grid-cols-2 gap-2 p-3 md:block md:space-y-0">
         {steps.map((s, i) => {
           const done = s.num < current;
           const active = s.num === current;
@@ -72,13 +119,13 @@ function StepIndicator({ current }: { current: Step }) {
                 </div>
                 <div>
                   <div
-                    className="text-[9px] font-bold tracking-[0.12em] leading-none"
+                    className="text-xs font-bold tracking-wide leading-none"
                     style={{ color: active ? "#fff" : done ? "#0f0e0c" : "#9e9b96" }}
                   >
                     {s.id}
                   </div>
                   <div
-                    className="text-[9px] mt-0.5 leading-tight"
+                    className="text-xs mt-1 leading-tight"
                     style={{ color: active ? "rgba(255,255,255,0.65)" : "#9e9b96" }}
                   >
                     {s.label}
@@ -86,7 +133,7 @@ function StepIndicator({ current }: { current: Step }) {
                 </div>
               </div>
               {i < steps.length - 1 && (
-                <div className="h-5 flex items-center" style={{ paddingLeft: 22 }}>
+                <div className="hidden h-5 items-center md:flex" style={{ paddingLeft: 22 }}>
                   <div className="w-px h-full" style={{ background: "#c4c0b9" }} />
                 </div>
               )}
@@ -208,25 +255,131 @@ function CalendarPicker({ selected, onSelect }: { selected: Date | null; onSelec
   );
 }
 
-const inputCls = "w-full px-4 py-3 text-[11px] outline-none transition-all bg-white";
+const inputCls = "w-full min-h-12 px-4 py-3 text-sm outline-none transition-all bg-white";
 const inputStyle = { fontFamily: "'Space Mono', monospace", border: "1.5px solid #c4c0b9" };
-const labelCls = "block text-[9px] font-bold tracking-[0.18em] mb-2";
+const labelCls = "block text-xs font-bold tracking-wide mb-2";
 
-export default function BookPage() {
+export default function BookPage({ setActivePage, resident }: { setActivePage: (page: Page) => void; resident: ResidentAccount }) {
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedReference, setSubmittedReference] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [schoolIdImage, setSchoolIdImage] = useState<File | null>(null);
+  const [schoolIdConsent, setSchoolIdConsent] = useState(false);
   const [form, setForm] = useState<FormData>({
-    fullName: "", address: "", voterId: "", requestType: "", purpose: "", date: null,
+    fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: "", otherRequestType: "", purpose: "", date: null,
+    timeSlot: "", deliveryFormat: "",
   });
 
   const set = (k: keyof FormData, v: string | Date | null) =>
     setForm(prev => ({ ...prev, [k]: v }));
 
   const canNext = () => {
-    if (step === 1) return !!(form.fullName && form.address && form.voterId);
-    if (step === 2) return !!(form.requestType && form.purpose);
-    if (step === 3) return form.date !== null;
+    if (step === 1) return !!(
+      form.fullName
+      && form.address
+      && form.validIdType
+      && form.validIdNumber.trim()
+      && (form.validIdType !== schoolIdType || (schoolIdImage && schoolIdConsent))
+    );
+    if (step === 2) return !!(form.requestType && (form.requestType !== "Other barangay document" || form.otherRequestType.trim()) && form.purpose && form.deliveryFormat);
+    if (step === 3) return form.date !== null && !!form.timeSlot;
     return true;
+  };
+
+  const submitRequest = async () => {
+    if (!form.date || !form.deliveryFormat || submitting) return;
+    if (form.validIdType === schoolIdType && (!schoolIdImage || !schoolIdConsent)) {
+      toast.error("Upload a picture of the School ID and confirm its use for this request.");
+      setStep(1);
+      return;
+    }
+    setSubmitting(true);
+
+    const request: AppointmentRequest = {
+      reference: `BRG-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
+      ownerId: resident.id,
+      fullName: form.fullName.trim(),
+      address: form.address.trim(),
+      voterId: `${form.validIdType}: ${form.validIdNumber.trim()}`,
+      schoolIdImagePath: null,
+      requestType: form.requestType === "Other barangay document" ? form.otherRequestType.trim() : form.requestType,
+      purpose: form.purpose.trim(),
+      date: format(form.date, "yyyy-MM-dd"),
+      timeSlot: form.timeSlot,
+      deliveryFormat: form.deliveryFormat,
+      status: "PENDING",
+      archived: false,
+      submittedAt: new Date().toISOString(),
+    };
+
+    let uploadedSchoolIdPath: string | null = null;
+    try {
+      if (form.validIdType === schoolIdType && schoolIdImage) {
+        uploadedSchoolIdPath = await uploadSchoolIdImage(schoolIdImage, resident.id, request.reference);
+        request.schoolIdImagePath = uploadedSchoolIdPath;
+      }
+      await addAppointmentRequest(request);
+      setSubmittedReference(request.reference);
+      setSubmitted(true);
+      toast.success("Request submitted for barangay review.");
+    } catch (error) {
+      if (uploadedSchoolIdPath) {
+        try {
+          await removeSchoolIdImage(uploadedSchoolIdPath);
+        } catch (cleanupError) {
+          console.error("Unable to remove the unsubmitted school ID image.", cleanupError);
+        }
+      }
+      console.error("Unable to submit the appointment request.", error);
+      toast.error(error instanceof Error ? error.message : "Could not submit your request.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const copyReference = async () => {
+    try {
+      await navigator.clipboard.writeText(submittedReference);
+      toast.success("Reference number copied.");
+    } catch (error) {
+      console.error("Unable to copy the request reference.", error);
+      toast.error("Could not copy automatically. Please select and copy the reference number.");
+    }
+  };
+
+  const downloadReceipt = async () => {
+    let request: AppointmentRequest | undefined;
+    try {
+      request = (await getAppointmentRequests(resident.id)).find((item) => item.reference === submittedReference);
+    } catch (error) {
+      console.error("Unable to load the request receipt data.", error);
+      toast.error(error instanceof Error ? error.message : "Could not load request details.");
+      return;
+    }
+    if (!request) {
+      toast.error("The saved request could not be found in this browser.");
+      return;
+    }
+    const receipt = [
+      "BARANGAY LAGASIT - REQUEST REFERENCE BACKUP",
+      `Reference: ${request.reference}`,
+      `Document: ${request.requestType}`,
+      `Appointment: ${format(new Date(`${request.date}T00:00:00`), "MMMM d, yyyy")} · ${request.timeSlot}`,
+      `Status: ${request.status}`,
+      `Submitted: ${format(new Date(request.submittedAt), "MMMM d, yyyy h:mm a")}`,
+      "",
+      "Sign in to the resident portal to retrieve this request from your account.",
+      "This receipt is a reference backup, not an official Barangay confirmation.",
+    ].join("\n");
+    const file = new Blob([receipt], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${request.reference}-receipt.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("Request receipt downloaded.");
   };
 
   if (submitted) {
@@ -243,37 +396,69 @@ export default function BookPage() {
             ✓
           </div>
           <div className="text-[9px] font-bold tracking-[0.2em] mb-3" style={{ color: "#9e9b96" }}>
-            REQUEST SUBMITTED
+            REQUEST RECEIVED
           </div>
-          <div className="text-lg font-bold tracking-tight mb-3">Appointment Confirmed</div>
-          <p className="text-[11px] mb-1" style={{ color: "#6e6b65" }}>
-            Reference:{" "}
-            <span className="font-bold" style={{ color: "#bf6318" }}>
-              BRG-2024-{Math.floor(Math.random() * 1000 + 4900)}
-            </span>
+          <div className="text-xl font-bold tracking-tight mb-3">Your request is awaiting review</div>
+          <p className="text-base mb-1" style={{ color: "#6e6b65" }}>
+            Keep this reference number to check your request status:
           </p>
-          <p className="text-[11px] mb-8 leading-relaxed" style={{ color: "#6e6b65" }}>
-            You will be notified within 24 hours via SMS or email.
+          <p className="text-lg font-bold mb-3" style={{ color: "#bf6318" }}>
+            {submittedReference}
           </p>
-          <button
-            onClick={() => { setSubmitted(false); setStep(1); setForm({ fullName: "", address: "", voterId: "", requestType: "", purpose: "", date: null }); }}
-            className="px-8 py-3 text-[10px] font-bold tracking-[0.14em] text-white transition-opacity hover:opacity-80"
-            style={{ background: "#0f0e0c" }}
-          >
-            BOOK ANOTHER
-          </button>
+          <div className="mb-5 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={copyReference}
+              className="flex min-h-11 items-center gap-2 border border-[#c4c0b9] px-4 text-sm font-bold text-[#123323]"
+            >
+              <Copy className="h-4 w-4" /> Copy reference
+            </button>
+            <button
+              type="button"
+              onClick={downloadReceipt}
+              className="flex min-h-11 items-center gap-2 border border-[#c4c0b9] px-4 text-sm font-bold text-[#123323]"
+            >
+              <Download className="h-4 w-4" /> Download backup
+            </button>
+          </div>
+          <p className="text-sm mb-8 leading-relaxed" style={{ color: "#6e6b65" }}>
+            Your request and reference are saved in this browser. This request has not been sent to the Barangay office.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActivePage("dashboard")}
+              className="min-h-12 border border-[#c4c0b9] px-5 py-3 text-sm font-bold text-[#123323]"
+            >
+              Go to my dashboard
+            </button>
+            <button
+              onClick={() => {
+                setSubmitted(false);
+                setSubmittedReference("");
+                setStep(1);
+                setForm({ fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: "", otherRequestType: "", purpose: "", date: null, timeSlot: "", deliveryFormat: "" });
+                setSchoolIdImage(null);
+                setSchoolIdConsent(false);
+              }}
+              className="min-h-12 px-8 py-3 text-sm font-bold text-white transition-opacity hover:opacity-80"
+              style={{ background: "#0f0e0c" }}
+            >
+              BOOK ANOTHER
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-[#edf1ee] p-7" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
+    <div className="bg-[#edf1ee] p-4 md:p-7" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
       {/* Header */}
       <div className="mb-7 flex items-start justify-between pb-5" style={{ borderBottom: "1px solid #c9d1ca" }}>
         <div>
           <h2 className="text-sm font-bold tracking-[0.12em] uppercase text-[#122d1f]">Appointment Request</h2>
-          <p className="mt-1 text-[10px] text-[#53645b]">
+          <p className="mt-1 text-sm text-[#53645b]">
             Book an appointment for barangay certification services
           </p>
         </div>
@@ -282,7 +467,7 @@ export default function BookPage() {
         </div>
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
         <StepIndicator current={step} />
 
         {/* Content card */}
@@ -300,13 +485,12 @@ export default function BookPage() {
           <div className="p-7">
             {step === 1 && (
               <div className="space-y-5 max-w-lg">
-                <p className="text-[10px] leading-relaxed" style={{ color: "#bf6318" }}>
+                <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
                   Provide your personal information as it appears on your valid ID.
                 </p>
                 {[
                   { label: "FULL NAME", key: "fullName", placeholder: "e.g. Juan dela Cruz" },
-                  { label: "COMPLETE ADDRESS", key: "address", placeholder: "e.g. 123 Rizal St., [Barangay Name]" },
-                  { label: "VOTER ID NUMBER", key: "voterId", placeholder: "e.g. 1234-5678-9012" },
+                  { label: "COMPLETE ADDRESS", key: "address", placeholder: "e.g. 123 Rizal St., Barangay Lagasit" },
                 ].map(f => (
                   <div key={f.key}>
                     <label className={labelCls}>
@@ -317,19 +501,96 @@ export default function BookPage() {
                       value={form[f.key as keyof FormData] as string}
                       onChange={e => set(f.key as keyof FormData, e.target.value)}
                       placeholder={f.placeholder}
+                      readOnly={f.key === "fullName" || f.key === "address"}
                       className={inputCls}
-                      style={inputStyle}
+                      style={{
+                        ...inputStyle,
+                        ...(f.key === "fullName" || f.key === "address" ? { background: "#f4f7f4", color: "#53645b" } : {}),
+                      }}
                       onFocus={e => (e.currentTarget.style.borderColor = "#0f0e0c")}
                       onBlur={e => (e.currentTarget.style.borderColor = "#c4c0b9")}
                     />
                   </div>
                 ))}
+                <div>
+                  <label className={labelCls}>
+                    VALID ID TYPE <span style={{ color: "#b91c1c" }}>*</span>
+                  </label>
+                  <select
+                    required
+                    value={form.validIdType}
+                    onChange={event => set("validIdType", event.target.value)}
+                    className={inputCls}
+                    style={inputStyle}
+                  >
+                    <option value="">Select the ID you will present</option>
+                    {validIdTypes.map(idType => <option key={idType} value={idType}>{idType}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>
+                    ID NUMBER <span style={{ color: "#b91c1c" }}>*</span>
+                  </label>
+                  <input
+                    required
+                    value={form.validIdNumber}
+                    onChange={event => set("validIdNumber", event.target.value)}
+                    placeholder="Enter the number shown on your ID"
+                    className={inputCls}
+                    style={inputStyle}
+                  />
+                </div>
+                {form.validIdType === schoolIdType && (
+                  <div className="space-y-3 rounded border border-[#d9e2da] bg-[#f7faf7] p-4">
+                    <label className="grid gap-2 text-sm font-bold text-[#34483a]">
+                      Picture of school ID <span className="text-red-700">*</span>
+                      <input
+                        required
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={event => {
+                          const file = event.target.files?.[0] ?? null;
+                          if (file && !schoolIdImageTypes.includes(file.type)) {
+                            toast.error("Choose a JPG, PNG, or WebP image.");
+                            event.currentTarget.value = "";
+                            setSchoolIdImage(null);
+                            return;
+                          }
+                          if (file && file.size > maxSchoolIdImageBytes) {
+                            toast.error("The school ID image must be 5 MB or smaller.");
+                            event.currentTarget.value = "";
+                            setSchoolIdImage(null);
+                            return;
+                          }
+                          setSchoolIdImage(file);
+                          setSchoolIdConsent(false);
+                        }}
+                        className="min-h-11 w-full rounded border border-[#c9d1ca] bg-white p-2 text-sm file:mr-3 file:min-h-8 file:rounded file:border-0 file:bg-[#123323] file:px-3 file:font-semibold file:text-white"
+                      />
+                    </label>
+                    <p className="text-xs leading-relaxed text-[#53645b]">
+                      Upload a clear picture of the school ID. JPG, PNG, or WebP; maximum 5 MB. Only authorized barangay staff can view it for this request.
+                    </p>
+                    {schoolIdImage && (
+                      <p className="break-all text-xs font-semibold text-[#34483a]">Selected: {schoolIdImage.name}</p>
+                    )}
+                    <label className="flex items-start gap-2 text-sm leading-relaxed text-[#34483a]">
+                      <input
+                        type="checkbox"
+                        checked={schoolIdConsent}
+                        onChange={event => setSchoolIdConsent(event.target.checked)}
+                        className="mt-1 h-4 w-4 accent-[#123323]"
+                      />
+                      <span>I confirm this is my school ID and allow authorized barangay staff to review this image for this request.</span>
+                    </label>
+                  </div>
+                )}
               </div>
             )}
 
             {step === 2 && (
               <div className="space-y-5 max-w-lg">
-                <p className="text-[10px] leading-relaxed" style={{ color: "#bf6318" }}>
+                <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
                   Select the type of document you need and briefly explain the purpose.
                 </p>
                 <div>
@@ -348,6 +609,22 @@ export default function BookPage() {
                     {certificateTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+                {form.requestType === "Other barangay document" && (
+                  <div>
+                    <label className={labelCls}>
+                      DOCUMENT NAME <span style={{ color: "#b91c1c" }}>*</span>
+                    </label>
+                    <input
+                      required
+                      maxLength={100}
+                      value={form.otherRequestType}
+                      onChange={e => set("otherRequestType", e.target.value)}
+                      placeholder="Enter the barangay document you need"
+                      className={inputCls}
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
                 <div>
                   <label className={labelCls}>
                     PURPOSE <span style={{ color: "#b91c1c" }}>*</span>
@@ -363,15 +640,57 @@ export default function BookPage() {
                     onBlur={e => (e.currentTarget.style.borderColor = "#c4c0b9")}
                   />
                 </div>
+                <fieldset>
+                  <legend className={labelCls}>DOCUMENT FORMAT <span style={{ color: "#b91c1c" }}>*</span></legend>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    {(["Softcopy", "Hardcopy", "Both"] as DeliveryFormat[]).map((formatOption) => (
+                      <button
+                        key={formatOption}
+                        type="button"
+                        aria-pressed={form.deliveryFormat === formatOption}
+                        onClick={() => set("deliveryFormat", formatOption)}
+                        className="min-h-12 border px-3 py-2 text-sm font-bold"
+                        style={{
+                          borderColor: form.deliveryFormat === formatOption ? "#123323" : "#c4c0b9",
+                          background: form.deliveryFormat === formatOption ? "#edf5ee" : "#fff",
+                          color: "#123323",
+                        }}
+                      >
+                        {formatOption}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
             )}
 
             {step === 3 && (
               <div className="space-y-4 max-w-xl">
-                <p className="text-[10px] leading-relaxed" style={{ color: "#bf6318" }}>
-                  Select an available appointment date. Grayed-out dates are unavailable.
+                <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
+                  Select an available weekday and appointment time.
                 </p>
                 <CalendarPicker selected={form.date} onSelect={d => set("date", d)} />
+                <fieldset>
+                  <legend className="mb-2 text-sm font-bold text-[#34483a]">Preferred appointment time</legend>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {timeSlots.map((timeSlot) => (
+                      <button
+                        key={timeSlot}
+                        type="button"
+                        aria-pressed={form.timeSlot === timeSlot}
+                        onClick={() => set("timeSlot", timeSlot)}
+                        className="min-h-11 border px-2 py-2 text-sm font-semibold"
+                        style={{
+                          borderColor: form.timeSlot === timeSlot ? "#123323" : "#c4c0b9",
+                          background: form.timeSlot === timeSlot ? "#edf5ee" : "#fff",
+                          color: "#123323",
+                        }}
+                      >
+                        {timeSlot}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
                 {form.date && (
                   <div
                     className="px-5 py-3.5"
@@ -381,7 +700,7 @@ export default function BookPage() {
                       SELECTED: {format(form.date, "MMMM d, yyyy (EEEE)").toUpperCase()}
                     </div>
                     <div className="text-[10px] mt-1" style={{ color: "#6e6b65" }}>
-                      Appointment time: 8:00 AM – 12:00 PM (walk-in order)
+                      Appointment time: {form.timeSlot || "Select a time above"}
                     </div>
                   </div>
                 )}
@@ -390,8 +709,8 @@ export default function BookPage() {
 
             {step === 4 && (
               <div className="space-y-5 max-w-xl">
-                <p className="text-[10px] leading-relaxed" style={{ color: "#bf6318" }}>
-                  Please review your request details before submitting. This information will be forwarded to the Barangay office.
+                <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
+                  Review your details before saving the request. Appointment date and time still need staff confirmation.
                 </p>
                 <div style={{ border: "1px solid #c4c0b9" }}>
                   <div
@@ -403,10 +722,12 @@ export default function BookPage() {
                   {[
                     { label: "FULL NAME", value: form.fullName },
                     { label: "ADDRESS", value: form.address },
-                    { label: "VOTER ID", value: form.voterId },
+                    { label: "VALID ID", value: `${form.validIdType} · ${form.validIdNumber}` },
                     { label: "REQUEST TYPE", value: form.requestType },
                     { label: "PURPOSE", value: form.purpose },
                     { label: "APPOINTMENT DATE", value: form.date ? format(form.date, "MMMM d, yyyy") : "—" },
+                    { label: "APPOINTMENT TIME", value: form.timeSlot },
+                    { label: "DOCUMENT FORMAT", value: form.deliveryFormat },
                   ].map((row, i, arr) => (
                     <div
                       key={row.label}
@@ -459,11 +780,12 @@ export default function BookPage() {
               </button>
             ) : (
               <button
-                onClick={() => { setSubmitted(true); toast.success("Appointment submitted successfully!"); }}
-                className="flex items-center gap-2 px-7 py-2.5 text-[10px] font-bold tracking-[0.12em] text-white transition-opacity hover:opacity-80"
+                disabled={submitting}
+                onClick={submitRequest}
+                className="flex min-h-12 items-center gap-2 px-7 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-80"
                 style={{ background: "#0f0e0c" }}
               >
-                SUBMIT REQUEST <Check className="w-3.5 h-3.5" />
+                {submitting ? "SAVING..." : "SUBMIT REQUEST"} <Check className="w-3.5 h-3.5" />
               </button>
             )}
           </div>

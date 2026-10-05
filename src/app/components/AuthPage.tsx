@@ -1,12 +1,19 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { RegisteredUser } from "../App";
+import { publicAsset } from "../publicAsset";
+import { formatResidentAddress, RESIDENT_BARANGAY_ADDRESS } from "../residentAddress";
+import {
+  registerResidentAccount,
+  ResidentAccount,
+  signInResident,
+  signInStaff,
+} from "../residentAuth";
+import { isSupabaseConfigured } from "../supabase";
 
 interface AuthPageProps {
-  onLogin: (userType: "user" | "admin", name: string) => void;
-  onRegister: (user: RegisteredUser) => void;
-  onPasswordReset: (email: string, newPassword: string) => void;
-  registeredUsers: RegisteredUser[];
+  onLogin: (userType: "user" | "admin", name: string, account?: ResidentAccount) => void;
+  adminOnly?: boolean;
+  onBackToPublicSite?: () => void;
 }
 
 const labelCls = "block text-[9px] font-bold tracking-[0.18em] mb-2";
@@ -32,61 +39,58 @@ function FocusInput({ value, onChange, placeholder, type = "text" }: {
   );
 }
 
-type View = "login" | "register" | "forgot";
+type View = "login" | "register";
 
-export default function AuthPage({ onLogin, onRegister, onPasswordReset, registeredUsers }: AuthPageProps) {
+export default function AuthPage({
+  onLogin,
+  adminOnly = false,
+  onBackToPublicSite,
+}: AuthPageProps) {
   const [view, setView] = useState<View>("login");
-  const [loginTab, setLoginTab] = useState<"resident" | "admin">("resident");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [adminUser, setAdminUser] = useState("");
+  const [adminEmail, setAdminEmail] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [reg, setReg] = useState({ firstName: "", lastName: "", email: "", contact: "", address: "", password: "", confirm: "" });
-  const [resetEmail, setResetEmail] = useState("");
-  const [resetContact, setResetContact] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [resetStep, setResetStep] = useState<"verify" | "reset">("verify");
-
-  const handleResidentLogin = (e: React.FormEvent) => {
+  const handleResidentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error("Please fill in all fields"); return; }
-    const user = registeredUsers.find(u => u.email === email && u.password === password);
-    if (user) { toast.success("Login successful!"); onLogin("user", `${user.firstName} ${user.lastName}`); }
-    else toast.error("Invalid email or password. Please register first.");
+    try {
+      const account = await signInResident(email, password);
+      toast.success("Login successful!");
+      onLogin("user", account.name, account);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to sign in.");
+    }
   };
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminUser === "admin" && adminPass === "admin123") {
-      toast.success("Admin login successful!"); onLogin("admin", "Administrator");
-    } else toast.error("Invalid admin credentials");
+    if (!adminEmail || !adminPass) { toast.error("Enter your staff email and password."); return; }
+    try {
+      const account = await signInStaff(adminEmail, adminPass);
+      toast.success("Staff login successful!");
+      onLogin("admin", account.name, account);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to sign in.");
+    }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const { firstName, lastName, email: rEmail, contact, address, password: rPass, confirm } = reg;
     if (!firstName || !lastName || !rEmail || !contact || !address || !rPass) { toast.error("Please fill in all required fields"); return; }
     if (rPass !== confirm) { toast.error("Passwords do not match"); return; }
-    if (registeredUsers.find(u => u.email === rEmail)) { toast.error("Email already registered"); return; }
-    onRegister({ firstName, lastName, email: rEmail, contactNumber: contact, address, password: rPass });
-    toast.success("Registration successful! Please login.");
-    setView("login");
-  };
-
-  const handleVerifyReset = (e: React.FormEvent) => {
-    e.preventDefault();
-    const user = registeredUsers.find(u => u.email === resetEmail && u.contactNumber === resetContact);
-    if (user) { setResetStep("reset"); toast.success("Identity verified."); }
-    else toast.error("Email and contact number do not match our records.");
-  };
-
-  const handleResetPassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPassword || newPassword !== confirmPassword) { toast.error("Passwords do not match"); return; }
-    onPasswordReset(resetEmail, newPassword);
-    toast.success("Password reset successfully!");
-    setView("login"); setResetStep("verify"); setResetEmail(""); setResetContact(""); setNewPassword(""); setConfirmPassword("");
+    if (rPass.length < 8) { toast.error("Use a password with at least 8 characters."); return; }
+    try {
+      const account = await registerResidentAccount({
+        firstName, lastName, email: rEmail, contactNumber: contact, address: formatResidentAddress(address), password: rPass,
+      });
+      toast.success("Resident account created. You are now signed in.");
+      onLogin("user", account.name, account);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to create the account.");
+    }
   };
 
   return (
@@ -100,7 +104,7 @@ export default function AuthPage({ onLogin, onRegister, onPasswordReset, registe
         <div>
           <div className="flex items-center gap-3 mb-16">
             <img
-              src="officials/brgylagasit.png"
+              src={publicAsset("officials/brgylagasit.png")}
               alt="Barangay Lagasit logo"
               className="w-12 h-12 object-contain rounded-full flex-shrink-0"
             />
@@ -118,7 +122,7 @@ export default function AuthPage({ onLogin, onRegister, onPasswordReset, registe
           </p>
         </div>
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 24 }}>
-          {[["Online Booking","ACTIVE"],["AI Assistant","ONLINE"],["Walk-in Service","OPEN"]].map(([label, status]) => (
+          {[["Online Booking","ACTIVE"],["LagaBot FAQ","AVAILABLE"],["Walk-in Schedule","VIEW"]].map(([label, status]) => (
             <div key={label} className="flex justify-between items-center mb-3">
               <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
               <span className="text-[9px] font-bold tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.75)" }}>{status}</span>
@@ -130,46 +134,70 @@ export default function AuthPage({ onLogin, onRegister, onPasswordReset, registe
       {/* Right: form area */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div style={{ width: "100%", maxWidth: 420 }}>
+          {onBackToPublicSite && (
+            <button
+              type="button"
+              onClick={onBackToPublicSite}
+              className="mb-5 text-sm font-semibold text-[#123323] underline underline-offset-4"
+            >
+              Back to public site
+            </button>
+          )}
 
           {/* LOGIN */}
           {view === "login" && (
             <div>
               <div className="mb-8">
-                <div className="text-[9px] font-bold tracking-[0.22em] mb-2" style={{ color: "#9e9b96" }}>PORTAL ACCESS</div>
-                <h2 className="text-2xl font-bold tracking-tight mb-1">Sign In</h2>
-                <p className="text-[11px]" style={{ color: "#6e6b65" }}>Access the Barangay Portal System</p>
+                <div className="text-xs font-bold tracking-wide mb-2" style={{ color: "#6e6b65" }}>
+                  {adminOnly ? "STAFF ACCESS" : "PORTAL ACCESS"}
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight mb-1">
+                  {adminOnly ? "Staff sign in" : "Sign in"}
+                </h2>
+                <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
+                  {adminOnly
+                    ? "Sign in with a staff account approved by the Barangay administrator."
+                    : "Sign in to view only your own requests and resident information."}
+                </p>
               </div>
-              <div className="flex mb-6" style={{ border: "1px solid #c4c0b9" }}>
-                {(["resident", "admin"] as const).map(t => (
-                  <button key={t} onClick={() => setLoginTab(t)} className="flex-1 py-2.5 text-[10px] font-bold tracking-[0.12em] uppercase transition-all"
-                    style={loginTab === t ? { background: "#123323", color: "#fff" } : { background: "#f4f8f4", color: "#6a766e" }}>
-                    {t === "resident" ? "Resident" : "Admin / Staff"}
+              {!isSupabaseConfigured && (
+                <div role="alert" className="mb-4 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-950">
+                  Database is not configured. The portal sign-in and shared records are unavailable until the Supabase project settings are added to the app environment.
+                </div>
+              )}
+              {!adminOnly && (
+                <div className="flex mb-6" style={{ border: "1px solid #c4c0b9" }}>
+                  <button
+                    className="flex-1 py-3 text-sm font-bold uppercase"
+                    style={{ background: "#123323", color: "#fff" }}
+                  >
+                    Resident
                   </button>
-                ))}
-              </div>
-              {loginTab === "resident" ? (
+                </div>
+              )}
+              {!adminOnly ? (
                 <form onSubmit={handleResidentLogin} className="space-y-4">
                   <div><label className={labelCls}>EMAIL ADDRESS</label><FocusInput value={email} onChange={setEmail} placeholder="your@email.com" type="email" /></div>
                   <div><label className={labelCls}>PASSWORD</label><FocusInput value={password} onChange={setPassword} placeholder="••••••••" type="password" /></div>
-                  <div className="flex justify-end">
-                    <button type="button" onClick={() => setView("forgot")} className="text-[10px] font-bold hover:opacity-70 transition-opacity" style={{ color: "#123323" }}>Forgot password?</button>
-                  </div>
-                  <button type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1" style={{ background: "#123323" }}>LOGIN</button>
+                  <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>LOGIN</button>
+                  <p className="text-center text-xs leading-relaxed text-[#6e6b65]">
+                    If you cannot sign in, contact the Barangay office to request account recovery.
+                  </p>
                 </form>
               ) : (
                 <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <div><label className={labelCls}>ADMIN USERNAME</label><FocusInput value={adminUser} onChange={setAdminUser} placeholder="admin" /></div>
+                  <div><label className={labelCls}>STAFF EMAIL</label><FocusInput value={adminEmail} onChange={setAdminEmail} placeholder="staff@barangay.gov.ph" type="email" /></div>
                   <div><label className={labelCls}>PASSWORD</label><FocusInput value={adminPass} onChange={setAdminPass} placeholder="••••••••" type="password" /></div>
-                  <div className="px-4 py-3 text-[10px] leading-relaxed" style={{ background: "#f5f3f0", border: "1px solid #c4c0b9", color: "#6e6b65" }}>
-                    Demo credentials: <strong>admin</strong> / <strong>admin123</strong>
+                  <div className="px-4 py-3 text-sm leading-relaxed" style={{ background: "#f5f3f0", border: "1px solid #c4c0b9", color: "#53645b" }}>
+                    Staff access is verified by Supabase Auth and the database staff role.
                   </div>
-                  <button type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity" style={{ background: "#123323" }}>ADMIN LOGIN</button>
+                  <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>STAFF LOGIN</button>
                 </form>
               )}
-              <p className="text-center text-[10px] mt-6" style={{ color: "#9e9b96" }}>
+              {!adminOnly && <p className="text-center text-sm mt-6" style={{ color: "#6e6b65" }}>
                 No account?{" "}
                 <button onClick={() => setView("register")} className="font-bold hover:opacity-70 transition-opacity" style={{ color: "#123323" }}>Register here</button>
-              </p>
+              </p>}
             </div>
           )}
 
@@ -178,57 +206,51 @@ export default function AuthPage({ onLogin, onRegister, onPasswordReset, registe
             <div>
               <div className="mb-8">
                 <div className="text-[9px] font-bold tracking-[0.22em] mb-2" style={{ color: "#9e9b96" }}>NEW ACCOUNT</div>
-                <h2 className="text-2xl font-bold tracking-tight mb-1">Create Account</h2>
+                <h2 className="text-2xl font-bold tracking-tight mb-1">Create resident account</h2>
                 <p className="text-[11px]" style={{ color: "#6e6b65" }}>Register to access barangay services online</p>
+              </div>
+              <div className="mb-4 rounded border border-[#c9d1ca] bg-[#f7faf7] px-3 py-2 text-xs leading-relaxed text-[#34483a]">
+                Create your account and start using the resident portal immediately. No email confirmation or staff approval is required.
               </div>
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div><label className={labelCls}>FIRST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.firstName} onChange={v => setReg(p => ({ ...p, firstName: v }))} placeholder="Juan" /></div>
                   <div><label className={labelCls}>LAST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.lastName} onChange={v => setReg(p => ({ ...p, lastName: v }))} placeholder="dela Cruz" /></div>
                 </div>
-                <div><label className={labelCls}>EMAIL ADDRESS <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.email} onChange={v => setReg(p => ({ ...p, email: v }))} placeholder="your@email.com" type="email" /></div>
-                <div><label className={labelCls}>CONTACT NUMBER <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.contact} onChange={v => setReg(p => ({ ...p, contact: v }))} placeholder="09XX-XXX-XXXX" /></div>
-                <div><label className={labelCls}>HOME ADDRESS <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.address} onChange={v => setReg(p => ({ ...p, address: v }))} placeholder="123 Rizal St., [Barangay Name]" /></div>
+                <div>
+                  <label className={labelCls}>EMAIL ADDRESS <span style={{ color: "#b91c1c" }}>*</span></label>
+                  <FocusInput value={reg.email} onChange={v => setReg(p => ({ ...p, email: v }))} placeholder="your@email.com" type="email" />
+                </div>
+                <div>
+                  <label className={labelCls}>CONTACT NUMBER <span style={{ color: "#b91c1c" }}>*</span></label>
+                  <FocusInput value={reg.contact} onChange={v => setReg(p => ({ ...p, contact: v }))} placeholder="+639171234567 or 09XX-XXX-XXXX" type="tel" />
+                </div>
+                <fieldset className="grid gap-3">
+                  <legend className={labelCls}>HOME ADDRESS <span style={{ color: "#b91c1c" }}>*</span></legend>
+                  <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-[#53645b]">
+                    BARANGAY
+                    <select
+                      value={RESIDENT_BARANGAY_ADDRESS}
+                      disabled
+                      className="min-h-11 w-full border border-[#c9d1ca] bg-[#f5f7f5] px-3 text-sm text-[#34483a]"
+                    >
+                      <option value={RESIDENT_BARANGAY_ADDRESS}>{RESIDENT_BARANGAY_ADDRESS}</option>
+                    </select>
+                  </label>
+                  <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-[#53645b]">
+                    HOUSE / STREET / SITIO
+                    <FocusInput value={reg.address} onChange={v => setReg(p => ({ ...p, address: v }))} placeholder="House number, street, or sitio" />
+                  </label>
+                </fieldset>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><label className={labelCls}>PASSWORD <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.password} onChange={v => setReg(p => ({ ...p, password: v }))} placeholder="••••••••" type="password" /></div>
+                  <div><label className={labelCls}>PASSWORD (8+ CHARACTERS) <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.password} onChange={v => setReg(p => ({ ...p, password: v }))} placeholder="••••••••" type="password" /></div>
                   <div><label className={labelCls}>CONFIRM</label><FocusInput value={reg.confirm} onChange={v => setReg(p => ({ ...p, confirm: v }))} placeholder="••••••••" type="password" /></div>
                 </div>
-                <button type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1" style={{ background: "#0f0e0c" }}>CREATE ACCOUNT</button>
+                <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#0f0e0c" }}>CREATE ACCOUNT</button>
               </form>
               <p className="text-center text-[10px] mt-5" style={{ color: "#9e9b96" }}>
                 Already registered?{" "}
                 <button onClick={() => setView("login")} className="font-bold hover:opacity-70 transition-opacity" style={{ color: "#123323" }}>Sign in here</button>
-              </p>
-            </div>
-          )}
-
-          {/* FORGOT */}
-          {view === "forgot" && (
-            <div>
-              <div className="mb-8">
-                <div className="text-[9px] font-bold tracking-[0.22em] mb-2" style={{ color: "#9e9b96" }}>
-                  {resetStep === "verify" ? "IDENTITY VERIFICATION" : "SET NEW PASSWORD"}
-                </div>
-                <h2 className="text-2xl font-bold tracking-tight mb-1">{resetStep === "verify" ? "Reset Password" : "New Password"}</h2>
-                <p className="text-[11px]" style={{ color: "#6e6b65" }}>
-                  {resetStep === "verify" ? "Enter your registered email and contact number to verify your identity." : "Choose a strong new password for your account."}
-                </p>
-              </div>
-              {resetStep === "verify" ? (
-                <form onSubmit={handleVerifyReset} className="space-y-4">
-                  <div><label className={labelCls}>EMAIL ADDRESS</label><FocusInput value={resetEmail} onChange={setResetEmail} placeholder="your@email.com" type="email" /></div>
-                  <div><label className={labelCls}>CONTACT NUMBER</label><FocusInput value={resetContact} onChange={setResetContact} placeholder="09XX-XXX-XXXX" /></div>
-                  <button type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1" style={{ background: "#0f0e0c" }}>VERIFY IDENTITY</button>
-                </form>
-              ) : (
-                <form onSubmit={handleResetPassword} className="space-y-4">
-                  <div><label className={labelCls}>NEW PASSWORD</label><FocusInput value={newPassword} onChange={setNewPassword} placeholder="••••••••" type="password" /></div>
-                  <div><label className={labelCls}>CONFIRM PASSWORD</label><FocusInput value={confirmPassword} onChange={setConfirmPassword} placeholder="••••••••" type="password" /></div>
-                  <button type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1" style={{ background: "#0f0e0c" }}>RESET PASSWORD</button>
-                </form>
-              )}
-              <p className="text-center text-[10px] mt-5">
-                <button onClick={() => { setView("login"); setResetStep("verify"); }} className="font-bold hover:opacity-70 transition-opacity" style={{ color: "#bf6318" }}>← Back to login</button>
               </p>
             </div>
           )}
