@@ -12,6 +12,7 @@ import {
   AppointmentRequest,
   getAppointmentRequests,
   getSchoolIdImageUrl,
+  sendResidentNotification,
   subscribeAppointmentRequests,
   setAppointmentArchived,
   updateAppointmentStatus,
@@ -165,7 +166,13 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
     try {
       await updateAppointmentStatus(ref, status);
       setRequests(await getAppointmentRequests());
-      toast.success(`Request marked ${status.toLowerCase()}.`);
+      try {
+        await sendResidentNotification({ type: "appointment_status", reference: ref, status });
+        toast.success(`Request marked ${status.toLowerCase()}; resident email notification sent.`);
+      } catch (notificationError) {
+        console.error("Appointment status updated, but its resident email could not be sent.", notificationError);
+        toast.error(`Request updated, but the resident email failed: ${notificationError instanceof Error ? notificationError.message : "Unknown email delivery error."}`);
+      }
     } catch (error) {
       console.error("Unable to update appointment request status.", error);
       toast.error(error instanceof Error ? error.message : "Could not update request.");

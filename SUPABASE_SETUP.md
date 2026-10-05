@@ -19,6 +19,26 @@ The application uses Supabase Auth, Postgres, row-level security (RLS), and Real
 
    Do this only for verified, authorized staff. Staff sign in at `/staff`.
 
+## Resident email notifications
+
+Authentication SMTP settings send account confirmation and other Supabase Auth emails only. The `notify-resident` Edge Function separately sends email when staff change an appointment or concern status, and when staff reply in an appointment conversation.
+
+1. Deploy the function to the same Supabase project connected to the app:
+
+   ```sh
+   supabase functions deploy notify-resident
+   ```
+
+   If using the Supabase CLI for the first time, log in and link the CLI to the correct project before deploying.
+2. In **Project Settings → Edge Functions → Secrets** (or the project’s Edge Function secrets page), set:
+   - `RESEND_API_KEY`: a Resend API key with email sending access.
+   - `RESEND_FROM_EMAIL`: a sender using the verified Resend domain, for example `Barangay Lagasit Portal <no-reply@auth.example.com>`.
+   - `APP_SITE_URL`: the deployed portal origin, for example `https://your-project.vercel.app`.
+
+   Keep these values in Supabase Edge Function secrets. Do not put the Resend key in frontend environment variables or commit it to Git.
+3. Verify that Supabase Auth SMTP is also configured if account-confirmation emails are needed; Edge Function secrets and Auth SMTP settings are separate configurations.
+4. Sign in as staff and change one appointment or concern status, or send a staff reply in an appointment conversation. The resident’s profile email receives the message. If a record update succeeds but delivery fails, the staff screen reports the email error; check the function logs and Resend logs.
+
 The schema enables RLS for all private records. Residents can read their own profile, requests, concerns, and request conversations; staff roles are assigned only by trusted database administrators. Public visitors can read active announcements and walk-in shifts. Records have no delete policy; staff can archive and restore appointment requests and concerns, and residents can view their own archived items.
 
 Residents can update their name, contact number, and address from **My profile**. Staff can edit these same fields in the resident masterlist. The sign-in email is read-only in both views because changing it requires a separate Supabase Auth email-update flow; the account role is only changed by a trusted database administrator.

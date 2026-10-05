@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Archive, RotateCcw } from "lucide-react";
+import { Archive, MessageSquareText, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import {
   DirectoryResident,
@@ -7,6 +7,7 @@ import {
   getResidentDirectory,
   getWalkInShifts,
   ResidentConcern,
+  sendResidentNotification,
   updateResidentDirectoryEntry,
   updateResidentConcern,
   setResidentConcernArchived,
@@ -72,6 +73,13 @@ export default function AdminServicesPage({ initialTab }: { initialTab: ServiceT
     try {
       await updateResidentConcern(reference, status);
       setConcerns(await getResidentConcerns());
+      try {
+        await sendResidentNotification({ type: "concern_status", reference, status });
+        toast.success("Concern status updated; resident email notification sent.");
+      } catch (notificationError) {
+        console.error("Concern status updated, but its resident email could not be sent.", notificationError);
+        toast.error(`Concern updated, but the resident email failed: ${notificationError instanceof Error ? notificationError.message : "Unknown email delivery error."}`);
+      }
     } catch (error) {
       console.error("Unable to update resident concern status.", error);
       toast.error(error instanceof Error ? error.message : "Could not update concern.");

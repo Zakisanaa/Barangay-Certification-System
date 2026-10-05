@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import {
   addTransactionMessage,
   getTransactionMessages,
+  sendResidentNotification,
   subscribeTransactionMessages,
   TransactionMessage,
 } from "../portalData";
@@ -50,6 +51,15 @@ export default function TransactionChat({ reference, resident }: TransactionChat
         sentAt: new Date().toISOString(),
       });
       setBody("");
+      if (resident.role === "staff") {
+        try {
+          await sendResidentNotification({ type: "staff_reply", reference, message: trimmedBody });
+          toast.success("Message sent and resident email notification delivered.");
+        } catch (notificationError) {
+          console.error("Staff reply was saved, but its resident email could not be sent.", notificationError);
+          toast.error(`Message sent, but the resident email failed: ${notificationError instanceof Error ? notificationError.message : "Unknown email delivery error."}`);
+        }
+      }
       setMessages(await getTransactionMessages(reference));
     } catch (error) {
       console.error("Unable to send request message.", error);

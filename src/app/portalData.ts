@@ -118,6 +118,24 @@ function reportError(action: string, error: { message: string }): never {
   throw new Error(`${action} failed: ${error.message}`);
 }
 
+type ResidentNotification =
+  | { type: "appointment_status"; reference: string; status: RequestStatus }
+  | { type: "concern_status"; reference: string; status: ResidentConcern["status"] }
+  | { type: "staff_reply"; reference: string; message: string };
+
+export async function sendResidentNotification(notification: ResidentNotification): Promise<void> {
+  const { error } = await requireSupabase().functions.invoke("notify-resident", { body: notification });
+  if (!error) return;
+  const context = error.context;
+  if (context instanceof Response) {
+    const payload = await context.clone().json() as { error?: unknown };
+    if (typeof payload.error === "string") {
+      throw new Error(payload.error);
+    }
+  }
+  reportError("sending resident email notification", error);
+}
+
 async function getCurrentUserId(): Promise<string> {
   const client = requireSupabase();
   const { data, error } = await client.auth.getUser();
