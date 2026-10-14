@@ -29,6 +29,7 @@ export interface AppointmentRequest {
   status: RequestStatus;
   archived: boolean;
   submittedAt: string;
+  rejectionReason?: string | null;
 }
 
 export interface TransactionMessage {
@@ -80,6 +81,7 @@ interface AppointmentRow {
   school_id_image_path: string | null;
   request_type: string; purpose: string; appointment_date: string; time_slot: string;
   delivery_format: DeliveryFormat; status: RequestStatus; archived: boolean; submitted_at: string;
+  rejection_reason?: string | null;
 }
 interface MessageRow {
   id: string; author_id: string; author_name: string; author_role: "Resident" | "Staff";
@@ -102,6 +104,7 @@ function toRequest(row: AppointmentRow): AppointmentRequest {
     voterId: row.voter_id, requestType: row.request_type, purpose: row.purpose, date: row.appointment_date,
     schoolIdImagePath: row.school_id_image_path,
     timeSlot: row.time_slot, deliveryFormat: row.delivery_format, status: row.status, archived: row.archived, submittedAt: row.submitted_at,
+    rejectionReason: row.rejection_reason ?? null,
   };
 }
 function toConcern(row: ConcernRow): ResidentConcern {
@@ -120,6 +123,7 @@ function reportError(action: string, error: { message: string }): never {
 
 type ResidentNotification =
   | { type: "appointment_status"; reference: string; status: RequestStatus }
+  | { type: "appointment_pdf"; reference: string; templateName: string; pdfBase64: string; deliveryId: string }
   | { type: "concern_status"; reference: string; status: ResidentConcern["status"] }
   | { type: "staff_reply"; reference: string; message: string };
 
@@ -215,8 +219,26 @@ export async function getSchoolIdImageUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-export async function updateAppointmentStatus(reference: string, status: RequestStatus): Promise<void> {
-  const { error } = await requireSupabase().from("appointment_requests").update({ status }).eq("reference", reference);
+export async function getCertificateTemplateUrl(fileName: string): Promise<string> {
+  const { data, error } = await requireSupabase()
+    .storage
+    .from("certificate-templates")
+    .createSignedUrl(fileName, 5 * 60, { download: fileName });
+  if (error) return reportError("opening a private certificate template", error);
+  return data.signedUrl;
+}
+
+export async function getCertificateTemplateFile(fileName: string): Promise<ArrayBuffer> {
+  const { data, error } = await requireSupabase()
+    .storage
+    .from("certificate-templates")
+    .download(fileName);
+  if (error) return reportError("downloading a private certificate template", error);
+  return data.arrayBuffer();
+}
+
+export async function updateAppointmentStatus(reference: string, status: RequestStatus, rejectionReason?: string): Promise<void> {
+  const { error } = await requireSupabase().from("appointment_requests").update({ status, rejection_reason: status === "REJECTED" ? rejectionReason?.trim() : null }).eq("reference", reference);
   if (error) reportError("updating the appointment status", error);
 }
 

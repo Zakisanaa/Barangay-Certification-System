@@ -1,0 +1,37 @@
+/* Keep long resident details and form controls inside their layout columns. */
+input, textarea, select, fieldset { min-width: 0; }
+img { max-width: 100%; }
+
+@media (max-width: 767px) {
+  html { font-size: 16px; }
+  input, textarea, select { font-size: 16px; }
+  button, summary { min-height: 44px; }
+
+  .responsive-table, .responsive-table tbody { display: block; width: 100%; }
+  .responsive-table thead { display: none; }
+  .responsive-table tbody { padding: 12px; }
+  .responsive-table tr {
+    display: block;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid #d9e2da !important;
+    border-radius: 8px;
+    background: white;
+  }
+  .responsive-table tr:last-child { margin-bottom: 0; }
+  .responsive-table td {
+    display: block;
+    padding: 8px 0;
+    overflow-wrap: anywhere;
+  }
+  .responsive-table td[data-label]::before {
+    display: block;
+    margin-bottom: 4px;
+    content: attr(data-label);
+    color: #53645b;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .responsive-table td:last-child { padding-bottom: 0; }
+  .responsive-table td[colspan] { text-align: center; }
+}

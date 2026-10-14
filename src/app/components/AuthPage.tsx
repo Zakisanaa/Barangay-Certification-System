@@ -10,6 +10,7 @@ import {
   signInStaff,
 } from "../residentAuth";
 import { isSupabaseConfigured } from "../supabase";
+import PasswordRecovery from "./PasswordRecovery";
 
 interface AuthPageProps {
   onLogin: (userType: "user" | "admin", name: string, account?: ResidentAccount) => void;
@@ -29,7 +30,9 @@ function FocusInput({ value, onChange, placeholder, type = "text" }: {
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full px-4 py-3 text-[11px] outline-none transition-all bg-white"
+      aria-label={placeholder ?? type}
+      required
+      className="min-h-12 w-full px-4 py-3 text-base outline-none transition-all bg-white"
       style={{
         fontFamily: "'Segoe UI', 'Arial', sans-serif",
         border: `1.5px solid ${focused ? "#123323" : "#c9d1ca"}`,
@@ -40,7 +43,7 @@ function FocusInput({ value, onChange, placeholder, type = "text" }: {
   );
 }
 
-type View = "login" | "register" | "confirmation";
+type View = "login" | "register" | "confirmation" | "forgot";
 
 export default function AuthPage({
   onLogin,
@@ -54,28 +57,37 @@ export default function AuthPage({
   const [adminPass, setAdminPass] = useState("");
   const [confirmationEmail, setConfirmationEmail] = useState("");
   const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
   const [reg, setReg] = useState({ firstName: "", lastName: "", email: "", contact: "", address: "", password: "", confirm: "" });
   const handleResidentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) { toast.error("Please fill in all fields"); return; }
+    if (authBusy) return;
+    setAuthBusy(true);
     try {
       const account = await signInResident(email, password);
       toast.success("Login successful!");
       onLogin("user", account.name, account);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to sign in.");
+    } finally {
+      setAuthBusy(false);
     }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adminEmail || !adminPass) { toast.error("Enter your staff email and password."); return; }
+    if (authBusy) return;
+    setAuthBusy(true);
     try {
       const account = await signInStaff(adminEmail, adminPass);
       toast.success("Staff login successful!");
       onLogin("admin", account.name, account);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to sign in.");
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -85,6 +97,8 @@ export default function AuthPage({
     if (!firstName || !lastName || !rEmail || !contact || !address || !rPass) { toast.error("Please fill in all required fields"); return; }
     if (rPass !== confirm) { toast.error("Passwords do not match"); return; }
     if (rPass.length < 8) { toast.error("Use a password with at least 8 characters."); return; }
+    if (authBusy) return;
+    setAuthBusy(true);
     try {
       const result = await registerResidentAccount({
         firstName, lastName, email: rEmail, contactNumber: contact, address: formatResidentAddress(address), password: rPass,
@@ -99,6 +113,8 @@ export default function AuthPage({
       onLogin("user", result.account.name, result.account);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to create the account.");
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -115,7 +131,7 @@ export default function AuthPage({
   };
 
   return (
-    <div className="min-h-screen flex" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif", background: "#edf1ee" }}>
+    <div className="flex min-h-screen" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif", background: "#edf1ee" }}>
 
       {/* Left panel */}
       <div
@@ -143,7 +159,7 @@ export default function AuthPage({
           </p>
         </div>
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 24 }}>
-          {[["Online Booking","ACTIVE"],["LagaBot FAQ","AVAILABLE"],["Walk-in Schedule","VIEW"]].map(([label, status]) => (
+          {[["Online Booking","ACTIVE"],["Banoy FAQ","AVAILABLE"],["Walk-in Schedule","VIEW"]].map(([label, status]) => (
             <div key={label} className="flex justify-between items-center mb-3">
               <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
               <span className="text-[9px] font-bold tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.75)" }}>{status}</span>
@@ -153,7 +169,7 @@ export default function AuthPage({
       </div>
 
       {/* Right: form area */}
-      <div className="flex-1 flex items-center justify-center p-8">
+      <div className="flex flex-1 items-start justify-center p-4 sm:items-center sm:p-8">
         <div style={{ width: "100%", maxWidth: 420 }}>
           {onBackToPublicSite && (
             <button
@@ -166,6 +182,7 @@ export default function AuthPage({
           )}
 
           {/* EMAIL CONFIRMATION */}
+          {view === "forgot" && <PasswordRecovery mode="request" staff={adminOnly} onBack={() => setView("login")} />}
           {view === "confirmation" && (
             <div role="status" className="rounded border border-[#c9d1ca] bg-white p-6">
               <div className="mb-3 text-[9px] font-bold tracking-[0.22em] text-[#6e6b65]">CHECK YOUR EMAIL</div>
@@ -230,9 +247,9 @@ export default function AuthPage({
                 <form onSubmit={handleResidentLogin} className="space-y-4">
                   <div><label className={labelCls}>EMAIL ADDRESS</label><FocusInput value={email} onChange={setEmail} placeholder="your@email.com" type="email" /></div>
                   <div><label className={labelCls}>PASSWORD</label><FocusInput value={password} onChange={setPassword} placeholder="••••••••" type="password" /></div>
-                  <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>LOGIN</button>
+                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "LOGIN"}</button>
                   <p className="text-center text-xs leading-relaxed text-[#6e6b65]">
-                    If you cannot sign in, contact the Barangay office to request account recovery.
+                    Use “Forgot password?” below if you need to reset your password.
                   </p>
                 </form>
               ) : (
@@ -242,9 +259,10 @@ export default function AuthPage({
                   <div className="px-4 py-3 text-sm leading-relaxed" style={{ background: "#f5f3f0", border: "1px solid #c4c0b9", color: "#53645b" }}>
                     Staff access is verified by Supabase Auth and the database staff role.
                   </div>
-                  <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>STAFF LOGIN</button>
+                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "STAFF LOGIN"}</button>
                 </form>
               )}
+              <button type="button" disabled={authBusy} onClick={() => setView("forgot")} className="mt-3 min-h-11 text-sm font-semibold text-[#123323] underline">Forgot password?</button>
               {!adminOnly && <p className="text-center text-sm mt-6" style={{ color: "#6e6b65" }}>
                 No account?{" "}
                 <button onClick={() => setView("register")} className="font-bold hover:opacity-70 transition-opacity" style={{ color: "#123323" }}>Register here</button>
@@ -264,7 +282,7 @@ export default function AuthPage({
                 You’ll need to confirm your email address before signing in. Use an email account you can access.
               </div>
               <form onSubmit={handleRegister} className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div><label className={labelCls}>FIRST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.firstName} onChange={v => setReg(p => ({ ...p, firstName: v }))} placeholder="Juan" /></div>
                   <div><label className={labelCls}>LAST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.lastName} onChange={v => setReg(p => ({ ...p, lastName: v }))} placeholder="dela Cruz" /></div>
                 </div>
@@ -293,11 +311,11 @@ export default function AuthPage({
                     <FocusInput value={reg.address} onChange={v => setReg(p => ({ ...p, address: v }))} placeholder="House number, street, or sitio" />
                   </label>
                 </fieldset>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div><label className={labelCls}>PASSWORD (8+ CHARACTERS) <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.password} onChange={v => setReg(p => ({ ...p, password: v }))} placeholder="••••••••" type="password" /></div>
                   <div><label className={labelCls}>CONFIRM</label><FocusInput value={reg.confirm} onChange={v => setReg(p => ({ ...p, confirm: v }))} placeholder="••••••••" type="password" /></div>
                 </div>
-                <button disabled={!isSupabaseConfigured} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#0f0e0c" }}>CREATE ACCOUNT</button>
+                <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#0f0e0c" }}>{authBusy ? "Creating account..." : "CREATE ACCOUNT"}</button>
               </form>
               <p className="text-center text-[10px] mt-5" style={{ color: "#9e9b96" }}>
                 Already registered?{" "}

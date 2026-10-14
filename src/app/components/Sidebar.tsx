@@ -1,7 +1,8 @@
-import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, MessageSquareText, UserRound } from "lucide-react";
+import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, MessageSquareText, UserRound, Settings } from "lucide-react";
 import { publicAsset } from "../publicAsset";
+import { useEffect, useRef } from "react";
 
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings";
 
 interface SidebarProps {
   activePage: Page;
@@ -15,7 +16,7 @@ interface SidebarProps {
 
 const navItems = [
   { id: "home" as Page, label: "Home", icon: Home },
-  { id: "chat" as Page, label: "LagaBot", icon: MessageSquare },
+  { id: "chat" as Page, label: "Banoy", icon: MessageSquare },
   { id: "book" as Page, label: "Book", icon: Calendar },
   { id: "dashboard" as Page, label: "Dashboard", icon: LayoutDashboard },
   { id: "schedule" as Page, label: "Walk-in schedule", icon: Clock },
@@ -29,9 +30,27 @@ const staffNavItems = [
   { id: "staff-residents" as Page, label: "Resident masterlist", icon: UserRound },
   { id: "staff-schedule" as Page, label: "Walk-in schedule", icon: Clock },
   { id: "staff-news" as Page, label: "Landing page news", icon: MessageSquare },
+  { id: "staff-settings" as Page, label: "Services & booking", icon: Settings },
 ];
 
 export default function Sidebar({ activePage, setActivePage, userName, userType, userId, isOpen, onClose }: SidebarProps) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const close = panel.current?.querySelector<HTMLButtonElement>('[aria-label="Close navigation"]');
+    close?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { onClose(); return; }
+      if (event.key !== "Tab") return;
+      const buttons = Array.from(panel.current?.querySelectorAll<HTMLElement>('button, a[href]') ?? []).filter(element => element.getClientRects().length);
+      const first = buttons[0]; const last = buttons[buttons.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
+  }, [isOpen, onClose]);
   const visibleNavItems = userType === "admin"
     ? staffNavItems
     : navItems;
@@ -52,9 +71,12 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
 
       {/* Sidebar panel */}
       <aside
+        ref={panel}
+        id="portal-navigation"
+        aria-label="Portal navigation"
         className={[
-          "fixed left-0 top-0 z-40 flex flex-col h-screen bg-white transition-transform duration-300 ease-in-out",
-          "w-[192px]",
+          "fixed left-0 top-0 z-40 flex h-dvh flex-col bg-white transition-transform duration-300 ease-in-out",
+          "w-[260px] max-w-[calc(100vw-2rem)] md:w-[192px]",
           // Mobile: slide in/out; Desktop: always visible
           isOpen ? "translate-x-0" : "-translate-x-full",
           "md:translate-x-0",
@@ -73,6 +95,8 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
             <div className="text-[9px] tracking-[0.1em] leading-tight mt-1 text-muted-foreground">PORTAL SYSTEM</div>
           </div>
           <button
+            type="button"
+            aria-label="Close navigation"
             onClick={onClose}
             className="md:hidden w-6 h-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
           >
@@ -120,7 +144,7 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
             </div>
             <div className="min-w-0">
               <div className="text-[10px] font-bold truncate tracking-wide">{userName}</div>
-              <div className="text-[9px] tracking-[0.06em]" style={{ color: "#9e9b96" }}>ID: {userId}</div>
+              <div className="truncate text-[9px] tracking-[0.06em]" style={{ color: "#9e9b96" }} title={userId}>ID: {userId}</div>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -10,23 +10,13 @@ import {
   uploadSchoolIdImage,
 } from "../portalData";
 import { ResidentAccount } from "../residentAuth";
+import { getCertificateTemplates } from "../certificateTemplates";
+import { getServiceConfiguration, getSlotAvailability, subscribeServiceData } from "../serviceData";
+import type { ServiceConfiguration, SlotAvailability } from "../serviceData";
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay,
-  isSameDay, isWeekend, isBefore, startOfDay, addMonths, subMonths,
+  isSameDay, isWeekend, isBefore, isAfter, startOfDay, addDays, addMonths, subMonths,
 } from "date-fns";
-
-const certificateTypes = [
-  "Barangay Clearance",
-  "Certificate of Residency",
-  "Certificate of Indigency",
-  "Business Permit Clearance",
-  "Good Moral Certificate",
-  "Community Tax Certificate (Cedula)",
-  "First-Time Job Seeker Certificate",
-  "Certificate of No Business",
-  "Certificate of No Property",
-  "Other barangay document",
-];
 
 const validIdTypes = [
   "Philippine National ID (PhilID)",
@@ -68,16 +58,6 @@ const steps = [
   { num: 2, id: "TYPE", label: "Document & Purpose" },
   { num: 3, id: "DATE", label: "Schedule Appointment" },
   { num: 4, id: "SUMMARY", label: "Review & Submit" },
-];
-
-const timeSlots = [
-  "8:00 AM - 9:00 AM",
-  "9:00 AM - 10:00 AM",
-  "10:00 AM - 11:00 AM",
-  "11:00 AM - 12:00 PM",
-  "1:00 PM - 2:00 PM",
-  "2:00 PM - 3:00 PM",
-  "3:00 PM - 4:00 PM",
 ];
 
 function StepIndicator({ current }: { current: Step }) {
@@ -145,9 +125,9 @@ function StepIndicator({ current }: { current: Step }) {
   );
 }
 
-function CalendarPicker({ selected, onSelect }: { selected: Date | null; onSelect: (d: Date) => void }) {
+function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected: Date | null; onSelect: (d: Date) => void; closures: string[]; daysAhead: number }) {
   const [viewDate, setViewDate] = useState(new Date());
-  const today = startOfDay(new Date());
+  const today = startOfDay(new Date(new Date().toLocaleDateString("en-US", { timeZone: "Asia/Manila" })));
   const monthStart = startOfMonth(viewDate);
   const monthEnd = endOfMonth(viewDate);
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -162,6 +142,8 @@ function CalendarPicker({ selected, onSelect }: { selected: Date | null; onSelec
         style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
       >
         <button
+          type="button"
+          aria-label="Previous month"
           onClick={() => setViewDate(v => subMonths(v, 1))}
           className="transition-opacity hover:opacity-60"
         >
@@ -176,6 +158,8 @@ function CalendarPicker({ selected, onSelect }: { selected: Date | null; onSelec
           </span>
         </div>
         <button
+          type="button"
+          aria-label="Next month"
           onClick={() => setViewDate(v => addMonths(v, 1))}
           className="transition-opacity hover:opacity-60"
         >
@@ -210,12 +194,15 @@ function CalendarPicker({ selected, onSelect }: { selected: Date | null; onSelec
           />
         ))}
         {days.map((day, i) => {
-          const unavail = isWeekend(day) || isBefore(startOfDay(day), today);
+          const unavail = isWeekend(day) || isBefore(startOfDay(day), today) || isAfter(day, addDays(today, daysAhead)) || closures.includes(format(day, "yyyy-MM-dd"));
           const isSel = selected && isSameDay(day, selected);
           const col = (startPad + i) % 7;
           return (
             <button
               key={day.toISOString()}
+              type="button"
+              aria-label={format(day, "EEEE, MMMM d, yyyy")}
+              aria-pressed={!!isSel}
               disabled={unavail}
               onClick={() => onSelect(day)}
               className="py-4 text-center text-[11px] font-bold transition-colors relative"
@@ -266,10 +253,55 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
   const [submitting, setSubmitting] = useState(false);
   const [schoolIdImage, setSchoolIdImage] = useState<File | null>(null);
   const [schoolIdConsent, setSchoolIdConsent] = useState(false);
+  const [configuration, setConfiguration] = useState<ServiceConfiguration | null>(null);
+  const [settingsError, setSettingsError] = useState("");
+  const [reloadSettings, setReloadSettings] = useState(0);
+  const [availableSlots, setAvailableSlots] = useState<SlotAvailability[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotError, setSlotError] = useState("");
   const [form, setForm] = useState<FormData>({
     fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: "", otherRequestType: "", purpose: "", date: null,
     timeSlot: "", deliveryFormat: "",
   });
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => void getServiceConfiguration().then(
+      data => { if (active) { setConfiguration(data); setSettingsError(""); } },
+      cause => { if (active) setSettingsError(cause instanceof Error ? cause.message : "Could not load booking information."); },
+    );
+    refresh();
+    const unsubscribe = subscribeServiceData(["service_catalog", "office_settings", "appointment_slots", "office_closures"], refresh);
+    return () => { active = false; unsubscribe(); };
+  }, [reloadSettings]);
+
+  useEffect(() => {
+    if (!form.date || step !== 3) return;
+    let active = true;
+    const day = format(form.date, "yyyy-MM-dd");
+    const refresh = () => {
+      setLoadingSlots(true);
+      void getSlotAvailability(day).then(
+        slots => {
+          if (!active) return;
+          setAvailableSlots(slots); setSlotError("");
+          setForm(previous => previous.timeSlot && !slots.some(slot => slot.label === previous.timeSlot && slot.available) ? { ...previous, timeSlot: "" } : previous);
+        },
+        cause => { if (active) { setAvailableSlots([]); setSlotError(cause instanceof Error ? cause.message : "Could not check appointment availability."); } },
+      ).finally(() => { if (active) setLoadingSlots(false); });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30000);
+    window.addEventListener("focus", refresh);
+    const unsubscribe = subscribeServiceData(["appointment_slots", "office_closures", "appointment_requests"], refresh);
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener("focus", refresh); unsubscribe(); };
+  }, [form.date, step, reloadSettings]);
+
+  const selectedService = configuration?.services.find(service => service.request_type === form.requestType && service.active);
+  const supportsSoftcopy = !!selectedService?.softcopy_available && !!getCertificateTemplates(form.requestType).length;
+  useEffect(() => {
+    if (!supportsSoftcopy) setForm(previous => previous.deliveryFormat && previous.deliveryFormat !== "Hardcopy" ? { ...previous, deliveryFormat: "Hardcopy" } : previous);
+  }, [supportsSoftcopy]);
 
   const set = (k: keyof FormData, v: string | Date | null) =>
     setForm(prev => ({ ...prev, [k]: v }));
@@ -282,13 +314,13 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
       && form.validIdNumber.trim()
       && (form.validIdType !== schoolIdType || (schoolIdImage && schoolIdConsent))
     );
-    if (step === 2) return !!(form.requestType && (form.requestType !== "Other barangay document" || form.otherRequestType.trim()) && form.purpose && form.deliveryFormat);
-    if (step === 3) return form.date !== null && !!form.timeSlot;
+    if (step === 2) return !!(selectedService && (form.requestType !== "Other barangay document" || form.otherRequestType.trim()) && form.purpose.trim() && form.deliveryFormat);
+    if (step === 3) return form.date !== null && !!form.timeSlot && !loadingSlots && !slotError && availableSlots.some(slot => slot.label === form.timeSlot && slot.available);
     return true;
   };
 
   const submitRequest = async () => {
-    if (!form.date || !form.deliveryFormat || submitting) return;
+    if (!form.date || !form.deliveryFormat || submitting || !selectedService) return;
     if (form.validIdType === schoolIdType && (!schoolIdImage || !schoolIdConsent)) {
       toast.error("Upload a picture of the School ID and confirm its use for this request.");
       setStep(1);
@@ -297,7 +329,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
     setSubmitting(true);
 
     const request: AppointmentRequest = {
-      reference: `BRG-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`,
+      reference: `BRG-${new Date().getFullYear()}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
       ownerId: resident.id,
       fullName: form.fullName.trim(),
       address: form.address.trim(),
@@ -358,7 +390,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
       return;
     }
     if (!request) {
-      toast.error("The saved request could not be found in this browser.");
+      toast.error("The saved request could not be found in your account.");
       return;
     }
     const receipt = [
@@ -388,7 +420,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
         className="p-7 flex items-center justify-center min-h-[70vh]"
         style={{ fontFamily: "'Space Mono', monospace" }}
       >
-        <div className="bg-white p-12 text-center" style={{ border: "1px solid #c4c0b9", maxWidth: 420 }}>
+        <div className="w-full bg-white p-5 text-center sm:p-10" style={{ border: "1px solid #c4c0b9", maxWidth: 420 }}>
           <div
             className="w-14 h-14 flex items-center justify-center text-2xl text-white mx-auto mb-5"
             style={{ background: "#0f0e0c" }}
@@ -422,8 +454,13 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
             </button>
           </div>
           <p className="text-sm mb-8 leading-relaxed" style={{ color: "#6e6b65" }}>
-            Your request and reference are saved in this browser. This request has not been sent to the Barangay office.
+            Your request is saved to your account and has been submitted to Barangay staff for review.
           </p>
+          {(form.deliveryFormat === "Softcopy" || form.deliveryFormat === "Both") && (
+            <p className="text-sm mb-8 leading-relaxed" style={{ color: "#6e6b65" }}>
+              You requested a softcopy. Staff will email the completed PDF to your registered address. You can also download it from your dashboard once it is saved.
+            </p>
+          )}
           <div className="flex flex-wrap justify-center gap-2">
             <button
               type="button"
@@ -474,7 +511,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
         <div className="flex-1 bg-white" style={{ border: "1px solid #c4c0b9" }}>
           {/* Step title */}
           <div
-            className="px-7 py-4"
+            className="px-4 py-4 sm:px-7"
             style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
           >
             <span className="text-[10px] font-bold tracking-[0.15em]">
@@ -482,7 +519,8 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
             </span>
           </div>
 
-          <div className="p-7">
+          <div className="p-4 sm:p-7">
+            {settingsError && <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>{settingsError}</p><button type="button" onClick={() => setReloadSettings(value => value + 1)} className="mt-2 min-h-11 rounded border border-red-200 px-3">Retry booking information</button></div>}
             {step === 1 && (
               <div className="space-y-5 max-w-lg">
                 <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
@@ -599,16 +637,18 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   </label>
                   <select
                     value={form.requestType}
-                    onChange={e => set("requestType", e.target.value)}
+                    onChange={e => setForm(previous => ({ ...previous, requestType: e.target.value, deliveryFormat: "" }))}
+                    disabled={!configuration}
                     className={inputCls}
                     style={{ ...inputStyle, cursor: "pointer", appearance: "none" }}
                     onFocus={e => (e.currentTarget.style.borderColor = "#0f0e0c")}
                     onBlur={e => (e.currentTarget.style.borderColor = "#c4c0b9")}
                   >
                     <option value="">-- Select document type --</option>
-                    {certificateTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    {configuration?.services.filter(service => service.active).map(service => <option key={service.request_type} value={service.request_type}>{service.request_type}</option>)}
                   </select>
                 </div>
+                {selectedService && <div className="space-y-2 rounded border border-[#d9e2da] bg-[#f7faf7] p-3 text-sm text-[#34483a]"><p className="whitespace-pre-wrap break-words"><strong>Requirements:</strong> {selectedService.requirements || "Contact the barangay office to confirm requirements."}</p><p><strong>Fee:</strong> {selectedService.fee_description || "Not yet confirmed by staff."}</p><p><strong>Processing:</strong> {selectedService.processing_time || "Confirm with the barangay office."}</p></div>}
                 {form.requestType === "Other barangay document" && (
                   <div>
                     <label className={labelCls}>
@@ -643,7 +683,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                 <fieldset>
                   <legend className={labelCls}>DOCUMENT FORMAT <span style={{ color: "#b91c1c" }}>*</span></legend>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    {(["Softcopy", "Hardcopy", "Both"] as DeliveryFormat[]).map((formatOption) => (
+                    {((supportsSoftcopy ? ["Softcopy", "Hardcopy", "Both"] : ["Hardcopy"]) as DeliveryFormat[]).map((formatOption) => (
                       <button
                         key={formatOption}
                         type="button"
@@ -661,6 +701,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                     ))}
                   </div>
                 </fieldset>
+                {form.requestType && !supportsSoftcopy && <p className="text-sm text-[#53645b]">This document is currently available as a hardcopy only.</p>}
               </div>
             )}
 
@@ -669,26 +710,31 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                 <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
                   Select an available weekday and appointment time.
                 </p>
-                <CalendarPicker selected={form.date} onSelect={d => set("date", d)} />
+                <CalendarPicker selected={form.date} closures={configuration?.closures.map(closure => closure.closed_date) ?? []} daysAhead={configuration?.office.booking_days_ahead ?? 90} onSelect={date => setForm(previous => ({ ...previous, date, timeSlot: "" }))} />
                 <fieldset>
                   <legend className="mb-2 text-sm font-bold text-[#34483a]">Preferred appointment time</legend>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {timeSlots.map((timeSlot) => (
+                  {loadingSlots && <p role="status" className="mb-2 text-sm text-[#53645b]">Checking available places…</p>}
+                  {slotError && <p role="alert" className="mb-2 text-sm text-red-800">{slotError}</p>}
+                  {!form.date && <p className="mb-2 text-sm text-[#53645b]">Choose a date to see available times.</p>}
+                  <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2 sm:grid-cols-3">
+                    {availableSlots.map((slot) => { const timeSlot = slot.label; return (
                       <button
                         key={timeSlot}
                         type="button"
+                        disabled={!slot.available || loadingSlots}
                         aria-pressed={form.timeSlot === timeSlot}
                         onClick={() => set("timeSlot", timeSlot)}
-                        className="min-h-11 border px-2 py-2 text-sm font-semibold"
+                        className="min-h-14 border px-2 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
                         style={{
                           borderColor: form.timeSlot === timeSlot ? "#123323" : "#c4c0b9",
                           background: form.timeSlot === timeSlot ? "#edf5ee" : "#fff",
                           color: "#123323",
                         }}
                       >
-                        {timeSlot}
+                        <span className="block">{timeSlot}</span>
+                        <span className="mt-1 block text-xs font-normal">{slot.available ? `${slot.remaining} places available` : slot.reason}</span>
                       </button>
-                    ))}
+                    ); })}
                   </div>
                 </fieldset>
                 {form.date && (
@@ -755,13 +801,13 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
 
           {/* Nav */}
           <div
-            className="flex justify-between px-7 py-5"
+            className="flex flex-col gap-2 px-4 py-5 sm:flex-row sm:justify-between sm:px-7"
             style={{ borderTop: "1px solid #c4c0b9" }}
           >
             <button
               onClick={() => setStep(s => (s - 1) as Step)}
               disabled={step === 1}
-              className="flex items-center gap-2 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] transition-all disabled:opacity-30"
+              className="flex min-h-11 items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold transition-all disabled:opacity-30"
               style={{ border: "1.5px solid #c4c0b9" }}
               onMouseEnter={e => { if (step > 1) e.currentTarget.style.borderColor = "#0f0e0c"; }}
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#c4c0b9")}
@@ -773,7 +819,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
               <button
                 onClick={() => { if (canNext()) setStep(s => (s + 1) as Step); }}
                 disabled={!canNext()}
-                className="flex items-center gap-2 px-6 py-2.5 text-[10px] font-bold tracking-[0.12em] text-white transition-opacity disabled:opacity-35"
+                className="flex min-h-11 items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold text-white transition-opacity disabled:opacity-35"
                 style={{ background: "#0f0e0c" }}
               >
                 NEXT <ChevronRight className="w-3.5 h-3.5" />
@@ -782,7 +828,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
               <button
                 disabled={submitting}
                 onClick={submitRequest}
-                className="flex min-h-12 items-center gap-2 px-7 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-80"
+                className="flex min-h-12 items-center justify-center gap-2 px-4 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-80"
                 style={{ background: "#0f0e0c" }}
               >
                 {submitting ? "SAVING..." : "SUBMIT REQUEST"} <Check className="w-3.5 h-3.5" />

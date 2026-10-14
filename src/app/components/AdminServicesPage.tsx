@@ -234,19 +234,19 @@ export default function AdminServicesPage({ initialTab }: { initialTab: ServiceT
           </div>
           {filteredResidents.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
+              <table className="responsive-table w-full text-left">
                 <thead className="bg-[#f7faf7] text-xs uppercase text-[#53645b]"><tr>
                   {["Resident", "Email", "Contact", "Address", "Registered", "Actions"].map((heading) => <th key={heading} className="px-4 py-3">{heading}</th>)}
                 </tr></thead>
                 <tbody className="divide-y divide-[#e3e8e3]">
                   {filteredResidents.map((resident) => (
                     <tr key={resident.id}>
-                      <td className="px-4 py-3 text-sm font-semibold">{resident.name}</td>
-                      <td className="px-4 py-3 text-sm">{resident.email || "Not provided"}</td>
-                      <td className="px-4 py-3 text-sm">{resident.contactNumber}</td>
-                      <td className="px-4 py-3 text-sm">{resident.address}</td>
-                      <td className="px-4 py-3 text-sm">{new Date(resident.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
+                      <td data-label="Resident" className="px-4 py-3 text-sm font-semibold">{resident.name}</td>
+                      <td data-label="Email" className="px-4 py-3 text-sm">{resident.email || "Not provided"}</td>
+                      <td data-label="Contact" className="px-4 py-3 text-sm">{resident.contactNumber}</td>
+                      <td data-label="Address" className="px-4 py-3 text-sm">{resident.address}</td>
+                      <td data-label="Registered" className="px-4 py-3 text-sm">{new Date(resident.createdAt).toLocaleDateString()}</td>
+                      <td data-label="Actions" className="px-4 py-3">
                         <button
                           type="button"
                           onClick={() => startEditingResident(resident)}
@@ -260,7 +260,7 @@ export default function AdminServicesPage({ initialTab }: { initialTab: ServiceT
                 </tbody>
               </table>
             </div>
-          ) : <p className="p-6 text-sm text-[#53645b]">{residents.length ? "No residents match that search." : "No residents have registered in this browser yet."}</p>}
+          ) : <p className="p-6 text-sm text-[#53645b]">{residents.length ? "No residents match that search." : "No residents have registered yet."}</p>}
           {editingResidentId && (
             <form onSubmit={saveResident} className="grid gap-4 border-t border-[#e3e8e3] bg-[#f7faf7] p-5 sm:grid-cols-2">
               <div className="sm:col-span-2">

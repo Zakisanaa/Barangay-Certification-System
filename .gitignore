@@ -1,5 +1,8 @@
 node_modules/
 dist/
+test-results/
 .vercel/
+supabase/.temp/
+BRGY. CERTS AND ETC/
 .env*
 !.env.example

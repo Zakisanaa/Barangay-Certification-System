@@ -124,6 +124,24 @@ export async function signInResident(email: string, password: string): Promise<R
   return account;
 }
 
+export async function requestPasswordReset(email: string, staff = false): Promise<void> {
+  const redirect = new URL(window.location.origin);
+  redirect.searchParams.set("recovery", "1");
+  if (staff) redirect.searchParams.set("staff", "1");
+  const { error } = await requireSupabase().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: redirect.toString() });
+  if (error) throw error;
+}
+
+export async function updateRecoveredPassword(password: string): Promise<void> {
+  const client = requireSupabase();
+  const { data, error: sessionError } = await client.auth.getUser();
+  if (sessionError || !data.user) throw new Error("This recovery link has expired. Request a new password reset email.");
+  const { error } = await client.auth.updateUser({ password });
+  if (error) throw error;
+  const { error: signOutError } = await client.auth.signOut();
+  if (signOutError) throw signOutError;
+}
+
 export async function signInStaff(email: string, password: string): Promise<ResidentAccount> {
   const client = requireSupabase();
   const { data, error } = await client.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });

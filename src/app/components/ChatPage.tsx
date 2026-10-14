@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { publicAsset } from "../publicAsset";
+import { getServiceConfiguration } from "../serviceData";
+import { getServiceFaq } from "../serviceFaq";
 
 interface Message {
   id: number;
@@ -8,25 +10,6 @@ interface Message {
   sender: "user" | "bot";
   timestamp: Date;
 }
-
-const knowledgeBase: Record<string, string> = {
-  "clearance requirements":
-    "Barangay Clearance requirements:\n\n1. Valid government-issued ID (original + photocopy)\n2. Proof of residency (utility bill or lease contract)\n3. Two (2) pieces 2×2 ID photos\n4. Community Tax Certificate (Cedula)\n5. Processing fee: ₱50.00\n\nProcessing time: 1–2 business days.",
-  "business permit":
-    "Business Permit requirements include:\n\n1. DTI/SEC registration\n2. Lease contract or proof of business location\n3. Valid ID of owner\n4. Completed application form\n5. ₱200.00 fee\n\nProcessing takes 3–5 business days.",
-  "certificate of residency":
-    "Certificate of Residency requirements:\n\n1. Valid government-issued ID\n2. Proof of residence (utility bill)\n3. One (1) 2×2 ID photo\n4. Processing fee: ₱30.00\n\nProcessing time: 1 business day.",
-  "certificate of indigency":
-    "Certificate of Indigency requirements:\n\n1. Valid government-issued ID\n2. Proof of residency\n3. Barangay certification from area chairman\n4. No processing fee\n\nProcessing time: 1–2 business days.",
-  "appointment reschedule":
-    "To reschedule an appointment:\n\n1. Go to your Dashboard tab\n2. Locate your appointment and click VIEW\n3. Contact the barangay office at (02) 8XXX-XXXX\n4. Provide your reference number and preferred new date\n\nReschedules must be made at least 1 business day in advance.",
-  "processing time":
-    "Average Processing Times:\n\n✓ Certificate of Residency — 1 business day\n✓ Barangay Clearance — 1–2 business days\n✓ Certificate of Indigency — 1–2 business days\n✓ Business Permit Clearance — 3–5 business days\n✓ Good Moral Certificate — 1–2 business days",
-  "office hours":
-    "Barangay Office Schedule:\n\nMonday to Friday: 8:00 AM – 5:00 PM\nClosed on weekends and public holidays\nLunch break: 12:00 PM – 1:00 PM\n\nBest time to visit: 8:00–11:00 AM to avoid long queues.",
-  "fees":
-    "Fees and payment methods can change and have not been confirmed in this demo. Please verify the current amount with the Barangay Hall before making a payment.",
-};
 
 const quickTopics = [
   "Clearance Requirements",
@@ -50,29 +33,11 @@ function AssistantAvatar({ small = false }: { small?: boolean }) {
   );
 }
 
-function getBotResponse(query: string): string {
-  const lower = query.toLowerCase();
-  for (const [key, answer] of Object.entries(knowledgeBase)) {
-    if (lower.includes(key)) return answer;
-  }
-  if (lower.includes("require") || lower.includes("document") || lower.includes("need"))
-    return knowledgeBase["clearance requirements"];
-  if (lower.includes("hour") || lower.includes("open") || lower.includes("schedule"))
-    return knowledgeBase["office hours"];
-  if (lower.includes("fee") || lower.includes("cost") || lower.includes("charge"))
-    return knowledgeBase["fees"];
-  if (lower.includes("process") || lower.includes("how long") || lower.includes("wait"))
-    return knowledgeBase["processing time"];
-  if (lower.includes("reschedul") || lower.includes("cancel"))
-    return knowledgeBase["appointment reschedule"];
-  return "I'm not sure about that. I can help with:\n\n• Certificate requirements\n• Office hours & schedules\n• Processing times & fees\n• Appointment rescheduling\n\nPlease rephrase your question or tap a topic from the quick questions panel.";
-}
-
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Hello! I'm LagaBot, Barangay Lagasit's FAQ assistant. I can help with common questions using the information available in this FAQ. How can I help you today?",
+      text: "Hello! I'm Banoy, Barangay Lagasit's FAQ assistant. I can help with common questions using the information available in this FAQ. How can I help you today?",
       sender: "bot",
       timestamp: new Date(),
     },
@@ -85,45 +50,53 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  const sendMessage = (text: string) => {
-    if (!text.trim()) return;
+  const sendMessage = async (text: string) => {
+    if (!text.trim() || isTyping) return;
     const userMsg: Message = { id: Date.now(), text: text.trim(), sender: "user", timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
-    setTimeout(() => {
+    try {
+      const configuration = await getServiceConfiguration();
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, text: getBotResponse(text), sender: "bot", timestamp: new Date() },
+        { id: Date.now() + 1, text: getServiceFaq(text, configuration), sender: "bot", timestamp: new Date() },
       ]);
+    } catch {
+      setMessages(previous => [...previous, { id: Date.now() + 1, text: "I could not load the current service information. Please try again or send a message to staff in your request conversation.", sender: "bot", timestamp: new Date() }]);
+    } finally {
       setIsTyping(false);
-    }, 750);
+    }
   };
 
   const fmt = (d: Date) => d.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="flex h-screen bg-[#edf1ee]" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
+    <div className="flex h-full min-h-0 flex-col bg-[#edf1ee] md:flex-row" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
 
       {/* ── Quick Questions Panel ──────────────────────────── */}
       <div
-        className="flex flex-col flex-shrink-0 bg-white"
-        style={{ width: 220, borderRight: "1px solid #c9d1ca" }}
+        className="flex w-full shrink-0 flex-col bg-white md:w-[220px]"
+        style={{ borderBottom: "1px solid #c9d1ca", borderRight: "1px solid #c9d1ca" }}
       >
-        <div className="px-5 py-4" style={{ borderBottom: "1px solid #c4c0b9" }}>
-          <div className="mb-2 text-[10px] font-bold tracking-[0.18em] text-[#51635d] uppercase">Quick Questions</div>
-          <p className="text-[10px] leading-relaxed text-[#53645b]">
+        <div className="px-4 py-3 md:px-5 md:py-4" style={{ borderBottom: "1px solid #c4c0b9" }}>
+          <div className="mb-1 text-[10px] font-bold tracking-[0.18em] text-[#51635d] uppercase md:mb-2">Quick Questions</div>
+          <p className="hidden text-[10px] leading-relaxed text-[#53645b] md:block">
             Tap a topic for a quick answer from the Barangay FAQ.
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div
+          aria-label="Frequently asked questions"
+          className="flex gap-2 overflow-x-auto px-4 py-2 md:flex-1 md:flex-col md:gap-0 md:overflow-x-hidden md:overflow-y-auto md:px-0 md:py-0"
+        >
           {quickTopics.map((topic) => (
             <button
               key={topic}
-              onClick={() => sendMessage(topic)}
-              className="w-full flex justify-between items-center px-5 py-3 text-left text-[11px] font-bold transition-colors"
-              style={{ borderBottom: "1px solid #e8e5e0", color: "#0f0e0c" }}
+              disabled={isTyping}
+              onClick={() => void sendMessage(topic)}
+              className="flex min-h-10 w-max shrink-0 items-center justify-between gap-2 whitespace-nowrap rounded-full border border-[#e8e5e0] bg-white px-3 text-left text-xs font-bold transition-colors md:min-h-11 md:w-full md:rounded-none md:border-0 md:border-b md:px-5 md:py-3 md:text-[11px] md:whitespace-normal"
+              style={{ borderBottomColor: "#e8e5e0", color: "#0f0e0c" }}
               onMouseEnter={e => (e.currentTarget.style.background = "#faf9f7")}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
@@ -133,20 +106,20 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="px-5 py-4" style={{ borderTop: "1px solid #c4c0b9", background: "#f5f3f0" }}>
-          <div className="mb-1.5 text-[9px] font-bold tracking-[0.15em] text-[#51635d] uppercase">LagaBot · FAQ assistant</div>
+        <div className="hidden px-5 py-4 md:block" style={{ borderTop: "1px solid #c4c0b9", background: "#f5f3f0" }}>
+          <div className="mb-1.5 text-[9px] font-bold tracking-[0.15em] text-[#51635d] uppercase">Banoy · FAQ assistant</div>
           <p className="text-[9px] leading-relaxed text-[#53645b]">
-            This demo matches questions to a fixed FAQ; it is not connected to an AI service. Confirm requirements and fees with the Barangay Hall.
+            Answers use service information maintained by barangay staff. Unconfirmed requirements and fees are identified in the response.
           </p>
         </div>
       </div>
 
       {/* ── Chat Panel ────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
 
         {/* Header */}
         <div
-          className="flex items-center justify-between px-6 py-4 bg-white"
+          className="flex items-center justify-between gap-3 bg-white px-4 py-3 sm:px-6 sm:py-4"
           style={{ borderBottom: "1px solid #c4c0b9" }}
         >
           <div className="flex items-center gap-3">
@@ -157,9 +130,9 @@ export default function ChatPage() {
               <AssistantAvatar />
             </div>
             <div>
-              <div className="text-[11px] font-bold tracking-[0.12em] text-[#122d1f] uppercase">LagaBot</div>
+              <div className="text-[11px] font-bold tracking-[0.12em] text-[#122d1f] uppercase">Banoy</div>
               <div className="mt-0.5 text-[10px] text-[#53645b]">
-                FAQ answers — available in this browser
+                Service information maintained by staff
               </div>
             </div>
           </div>
@@ -170,7 +143,7 @@ export default function ChatPage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-6">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:space-y-6 sm:px-8 sm:py-6">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -184,9 +157,9 @@ export default function ChatPage() {
                   <AssistantAvatar small />
                 </div>
               )}
-              <div className={`flex flex-col max-w-[68%] ${msg.sender === "user" ? "items-end" : "items-start"}`}>
+              <div className={`flex max-w-[85%] flex-col sm:max-w-[68%] ${msg.sender === "user" ? "items-end" : "items-start"}`}>
                 <div
-                  className="px-5 py-3.5 text-[11px] leading-relaxed whitespace-pre-line"
+                  className="whitespace-pre-line break-words px-3 py-3 text-sm leading-relaxed sm:px-5 sm:py-3.5 sm:text-xs"
                   style={
                     msg.sender === "bot"
                       ? { background: "#fff", border: "1px solid #c4c0b9", color: "#0f0e0c" }
@@ -199,7 +172,7 @@ export default function ChatPage() {
                   className="text-[9px] font-bold tracking-[0.08em] mt-1.5"
                   style={{ color: "#9e9b96" }}
                 >
-                  {msg.sender === "bot" ? "LAGABOT" : "YOU"} · {fmt(msg.timestamp)}
+                  {msg.sender === "bot" ? "BANOY" : "YOU"} · {fmt(msg.timestamp)}
                 </div>
               </div>
               {msg.sender === "user" && (
@@ -242,7 +215,7 @@ export default function ChatPage() {
 
         {/* Input */}
         <div
-          className="px-8 py-5 bg-white"
+          className="bg-white px-4 py-3 sm:px-8 sm:py-5"
           style={{ borderTop: "1px solid #c4c0b9" }}
         >
           <form
@@ -253,7 +226,7 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type your question here..."
-              className="flex-1 px-5 py-3 text-[11px] outline-none transition-colors"
+              className="min-w-0 flex-1 px-3 py-3 text-base outline-none transition-colors sm:px-5 sm:text-xs"
               style={{
                 fontFamily: "'Space Mono', monospace",
                 border: "1.5px solid #c4c0b9",
@@ -266,11 +239,12 @@ export default function ChatPage() {
             <button
               type="submit"
               disabled={!input.trim()}
+              aria-label="Send message"
               className="flex items-center gap-2 px-5 py-3 text-[10px] font-bold tracking-[0.12em] text-white transition-opacity disabled:opacity-40"
               style={{ background: "#0f0e0c", fontFamily: "'Space Mono', monospace" }}
             >
               <Send className="w-3.5 h-3.5" />
-              SEND
+              <span className="hidden sm:inline">SEND</span>
             </button>
           </form>
           <p className="text-[9px] mt-2.5 tracking-[0.06em]" style={{ color: "#bf6318" }}>

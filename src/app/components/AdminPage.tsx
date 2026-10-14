@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Clock, Users, CheckCircle2, Eye, Check, X, Archive, RotateCcw } from "lucide-react";
+import { FileText, Clock, Users, CheckCircle2, Eye, Check, X, Archive, RotateCcw, Search } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer,
   Tooltip, TooltipProps,
@@ -7,6 +7,9 @@ import {
 import TransactionChat from "./TransactionChat";
 import { toast } from "sonner";
 import { ResidentAccount } from "../residentAuth";
+import CertificateDelivery from "./CertificateDelivery";
+import RequestHistory from "./RequestHistory";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 import { format, getMonth, getYear, parseISO } from "date-fns";
 import {
   AppointmentRequest,
@@ -53,32 +56,52 @@ function SchoolIdImage({ path }: { path: string }) {
   );
 }
 
-function DetailModal({ request, onClose, resident }: { request: AppointmentRequest; onClose: () => void; resident: ResidentAccount }) {
+function DetailModal({
+  request,
+  onClose,
+  resident,
+  onSendSoftcopy,
+  sendingSoftcopy,
+}: {
+  request: AppointmentRequest;
+  onClose: () => void;
+  resident: ResidentAccount;
+  onSendSoftcopy: (templateName: string, pdfBase64: string, deliveryId: string) => Promise<void>;
+  sendingSoftcopy: boolean;
+}) {
+  const wantsSoftcopy = request.deliveryFormat === "Softcopy" || request.deliveryFormat === "Both";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(15,14,12,0.55)" }}
-      onClick={onClose}
+      onClick={() => { if (!sendingSoftcopy) onClose(); }}
     >
       <div
-        className="mx-4 max-h-[90vh] w-full overflow-y-auto bg-white md:mx-0 md:w-[520px]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="request-details-title"
+        className="mx-3 max-h-[90dvh] w-full max-w-[640px] overflow-y-auto rounded-lg bg-white"
         style={{ border: "1px solid #c4c0b9", boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}
         onClick={e => e.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between px-6 py-3.5"
+          className="sticky top-0 z-10 flex items-center justify-between px-4 py-3.5 sm:px-6"
           style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
         >
-          <span className="text-base font-bold">Request details</span>
+          <h2 id="request-details-title" className="text-base font-bold">Request details</h2>
           <button
+            type="button"
             onClick={onClose}
-            className="transition-opacity hover:opacity-60"
+            disabled={sendingSoftcopy}
+            aria-label="Close request details"
+            className="flex h-10 w-10 items-center justify-center rounded-md transition-opacity hover:opacity-60 disabled:cursor-not-allowed disabled:opacity-50"
             style={{ color: "#6e6b65" }}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="px-6 py-5 space-y-4">
+        <div className="space-y-4 px-4 py-5 sm:px-6">
           {[
             { label: "REFERENCE", value: request.reference, amber: true },
             { label: "RESIDENT", value: request.fullName, amber: true },
@@ -89,15 +112,15 @@ function DetailModal({ request, onClose, resident }: { request: AppointmentReque
             { label: "PURPOSE",       value: request.purpose, amber: false },
             { label: "STATUS",        value: request.status,    amber: true },
           ].map(row => (
-            <div key={row.label} className="flex gap-6">
+            <div key={row.label} className="flex gap-3 sm:gap-6">
               <div
-                className="text-[9px] font-bold tracking-[0.16em] flex-shrink-0 pt-0.5"
+                className="shrink-0 pt-0.5 text-xs font-semibold"
                 style={{ width: 110, color: "#9e9b96" }}
               >
                 {row.label}
               </div>
               <div
-                className="text-[11px] font-bold"
+                className="min-w-0 break-words text-sm font-semibold"
                 style={{ color: row.amber ? "#bf6318" : "#0f0e0c" }}
               >
                 {row.value}
@@ -110,6 +133,16 @@ function DetailModal({ request, onClose, resident }: { request: AppointmentReque
               <SchoolIdImage path={request.schoolIdImagePath} />
             </section>
           )}
+          {wantsSoftcopy && (
+            <CertificateDelivery
+              key={request.reference}
+              request={request}
+              onSend={onSendSoftcopy}
+              sending={sendingSoftcopy}
+            />
+          )}
+          {request.rejectionReason && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><strong>Reason for rejection:</strong> {request.rejectionReason}</p>}
+          <RequestHistory reference={request.reference} />
           <TransactionChat reference={request.reference} resident={resident} />
         </div>
       </div>
@@ -137,6 +170,12 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
   const [showArchivedRequests, setShowArchivedRequests] = useState(false);
   const [tab, setTab] = useState<ActiveTab>("verification");
   const [selectedReq, setSelectedReq] = useState<AppointmentRequest | null>(null);
+  const [sendingSoftcopyReference, setSendingSoftcopyReference] = useState<string | null>(null);
+  const [requestQuery, setRequestQuery] = useState("");
+  const [appointmentDateFilter, setAppointmentDateFilter] = useState("");
+  const [updatingReference, setUpdatingReference] = useState<string | null>(null);
+  const [rejectingRequest, setRejectingRequest] = useState<AppointmentRequest | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -160,11 +199,18 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
   const approved = activeRequests.filter((request) => request.status === "APPROVED").length;
   const residentCount = new Set(activeRequests.map((request) => request.fullName.trim().toLowerCase())).size;
   const requestCollection = requests.filter((request) => request.archived === showArchivedRequests);
-  const filtered = filter === "ALL" ? requestCollection : requestCollection.filter((request) => request.status === filter);
+  const query = requestQuery.trim().toLowerCase();
+  const filtered = requestCollection.filter(request =>
+    (filter === "ALL" || request.status === filter)
+    && (!appointmentDateFilter || request.date === appointmentDateFilter)
+    && (!query || [request.reference, request.fullName, request.requestType].some(value => value.toLowerCase().includes(query))),
+  );
 
-  const updateStatus = async (ref: string, status: AppointmentRequest["status"]) => {
+  const updateStatus = async (ref: string, status: AppointmentRequest["status"], reason?: string): Promise<boolean> => {
+    if (updatingReference) return false;
+    setUpdatingReference(ref);
     try {
-      await updateAppointmentStatus(ref, status);
+      await updateAppointmentStatus(ref, status, reason);
       setRequests(await getAppointmentRequests());
       try {
         await sendResidentNotification({ type: "appointment_status", reference: ref, status });
@@ -173,9 +219,33 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
         console.error("Appointment status updated, but its resident email could not be sent.", notificationError);
         toast.error(`Request updated, but the resident email failed: ${notificationError instanceof Error ? notificationError.message : "Unknown email delivery error."}`);
       }
+      return true;
     } catch (error) {
       console.error("Unable to update appointment request status.", error);
       toast.error(error instanceof Error ? error.message : "Could not update request.");
+      return false;
+    } finally {
+      setUpdatingReference(null);
+    }
+  };
+
+  const sendSoftcopy = async (reference: string, templateName: string, pdfBase64: string, deliveryId: string) => {
+    setSendingSoftcopyReference(reference);
+    try {
+      await sendResidentNotification({
+        type: "appointment_pdf",
+        reference,
+        templateName,
+        pdfBase64,
+        deliveryId,
+      });
+      toast.success("Certificate saved. Email submitted for delivery; follow its status in request history.");
+    } catch (error) {
+      console.error("Unable to email the resident's completed certificate PDF.", error);
+      toast.error(error instanceof Error ? error.message : "Could not send the certificate PDF.");
+      throw error;
+    } finally {
+      setSendingSoftcopyReference(null);
     }
   };
 
@@ -217,7 +287,26 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
 
   return (
     <div className="min-h-full bg-[#f4f7f4] p-4 md:p-7" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
-      {selectedReq && <DetailModal request={selectedReq} resident={resident} onClose={() => setSelectedReq(null)} />}
+      {selectedReq && (
+        <DetailModal
+          request={requests.find(request => request.reference === selectedReq.reference) ?? selectedReq}
+          resident={resident}
+          onClose={() => setSelectedReq(null)}
+          onSendSoftcopy={(templateName, pdfBase64, deliveryId) => sendSoftcopy(selectedReq.reference, templateName, pdfBase64, deliveryId)}
+          sendingSoftcopy={sendingSoftcopyReference === selectedReq.reference}
+        />
+      )}
+
+      <Dialog open={!!rejectingRequest} onOpenChange={open => { if (!open && !updatingReference) setRejectingRequest(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto bg-white">
+          <DialogTitle>Reject request {rejectingRequest?.reference}</DialogTitle>
+          <DialogDescription>Explain what the resident needs to correct. This reason will appear in their dashboard and request history.</DialogDescription>
+          <form className="space-y-4" onSubmit={event => { event.preventDefault(); if (rejectingRequest && rejectionReason.trim()) void updateStatus(rejectingRequest.reference, "REJECTED", rejectionReason).then(success => { if (success) setRejectingRequest(null); }); }}>
+            <label className="grid gap-2 text-sm font-semibold">Reason for rejection<textarea required maxLength={1000} rows={5} value={rejectionReason} disabled={!!updatingReference} onChange={event => setRejectionReason(event.target.value)} className="w-full rounded border border-[#c9d1ca] p-3 text-base" /></label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={!!updatingReference} onClick={() => setRejectingRequest(null)} className="min-h-11 rounded border border-[#c9d1ca] px-4 text-sm font-semibold">Cancel</button><button disabled={!!updatingReference || !rejectionReason.trim()} className="min-h-11 rounded bg-red-800 px-4 text-sm font-semibold text-white disabled:opacity-50">{updatingReference ? "Saving…" : "Reject with reason"}</button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#d9e2da] bg-white p-5 md:p-6">
@@ -297,6 +386,11 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
             ))}
           </div>
           {/* Filter bar */}
+          <div className="grid gap-3 border-b border-[#d9e2da] bg-white p-4 sm:grid-cols-[1fr_180px_auto]">
+            <label className="relative block"><span className="sr-only">Search requests by resident, reference, or document</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-[#53645b]" /><input type="search" value={requestQuery} onChange={event => setRequestQuery(event.target.value)} placeholder="Search resident, reference, or document" className="min-h-11 w-full rounded border border-[#c9d1ca] pl-9 pr-3 text-base" /></label>
+            <label className="block"><span className="sr-only">Filter by appointment date</span><input type="date" value={appointmentDateFilter} onChange={event => setAppointmentDateFilter(event.target.value)} className="min-h-11 w-full rounded border border-[#c9d1ca] px-3 text-base" /></label>
+            <button type="button" onClick={() => { setRequestQuery(""); setAppointmentDateFilter(""); setFilter("ALL"); }} className="min-h-11 rounded border border-[#c9d1ca] px-3 text-sm font-semibold">Clear filters</button>
+          </div>
           <div
             className="flex flex-wrap items-center gap-2.5 px-4 py-4 md:px-5"
             style={{ background: "#f7faf7", borderBottom: "1px solid #d9e2da" }}
@@ -324,7 +418,7 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="responsive-table w-full">
               <thead>
                 <tr style={{ borderBottom: "1px solid #d9e2da", background: "#f7faf7" }}>
                   {["Reference", "Resident", "Request type", "Appointment", "Submitted", "Status", "Actions"].map(h => (
@@ -359,25 +453,25 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
                       onMouseEnter={e => (e.currentTarget.style.background = "#faf9f7")}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
-                      <td className="px-5 py-4">
+                      <td data-label="Reference" className="px-5 py-4">
                         <span className="text-sm font-bold text-[#123323]">{req.reference}</span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Resident" className="px-5 py-4">
                         <span className="text-sm font-semibold text-[#122d1f]">{req.fullName}</span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Request type" className="px-5 py-4">
                         <span className="text-sm text-[#34483a]">{req.requestType}</span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Appointment" className="px-5 py-4">
                         <span className="text-sm font-semibold text-[#34483a]">
                           {format(parseISO(req.date), "MMM d, yyyy")}
                         </span>
                         <span className="mt-1 block text-xs text-[#53645b]">{req.timeSlot}</span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Submitted" className="px-5 py-4">
                         <span className="text-sm text-[#53645b]">{format(parseISO(req.submittedAt), "MMM d, yyyy")}</span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Status" className="px-5 py-4">
                         <span
                           className="inline-block rounded-full px-3 py-1.5 text-xs font-bold"
                           style={{ background: s.bg, color: s.color, border: s.border || "none" }}
@@ -385,7 +479,7 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
                           {req.status}
                         </span>
                       </td>
-                      <td className="px-5 py-4">
+                      <td data-label="Actions" className="px-5 py-4">
                         <div className="flex gap-2 flex-wrap">
                           <button
                             onClick={() => setSelectedReq(req)}
@@ -407,13 +501,15 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
                           {!req.archived && req.status === "PENDING" && (
                             <>
                               <button
-                                onClick={() => updateStatus(req.reference, "APPROVED")}
+                                disabled={!!updatingReference}
+                                onClick={() => void updateStatus(req.reference, "APPROVED")}
                                 className="flex min-h-9 items-center gap-1.5 rounded border border-green-300 bg-green-50 px-3 py-1.5 text-sm font-semibold text-green-900 transition-all hover:bg-green-100"
                               >
                                 <Check className="w-3 h-3" /> APPROVE
                               </button>
                               <button
-                                onClick={() => updateStatus(req.reference, "REJECTED")}
+                                disabled={!!updatingReference}
+                                onClick={() => { setRejectingRequest(req); setRejectionReason(""); }}
                                 className="flex min-h-9 items-center gap-1.5 rounded border border-red-200 px-3 py-1.5 text-sm font-semibold text-red-800 transition-all hover:bg-red-50"
                               >
                                 <X className="w-3 h-3" /> REJECT
@@ -422,7 +518,8 @@ export default function AdminPage({ resident }: { resident: ResidentAccount }) {
                           )}
                           {!req.archived && req.status === "APPROVED" && (
                             <button
-                              onClick={() => updateStatus(req.reference, "COMPLETED")}
+                              disabled={!!updatingReference}
+                              onClick={() => void updateStatus(req.reference, "COMPLETED")}
                               className="flex min-h-9 items-center gap-1.5 rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-900 transition-all hover:bg-blue-100"
                             >
                               <CheckCircle2 className="w-4 h-4" /> Complete

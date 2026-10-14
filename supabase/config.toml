@@ -1,0 +1,10 @@
+project_id = "barangay-certification-appointment-system"
+
+[functions.notify-resident]
+verify_jwt = true
+
+[functions.resend-webhook]
+verify_jwt = false
+
+[functions.configure-delivery-tracking]
+verify_jwt = true

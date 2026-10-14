@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { LogOut, Menu } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import AuthPage from "./components/AuthPage";
@@ -14,9 +14,12 @@ import LandingNewsManager from "./components/LandingNewsManager";
 import WalkInSchedulePage from "./components/WalkInSchedulePage";
 import ConcernsPage from "./components/ConcernsPage";
 import ResidentProfilePage from "./components/ResidentProfilePage";
+import ServiceSettingsPage from "./components/ServiceSettingsPage";
+import PasswordRecovery from "./components/PasswordRecovery";
 import { publicAsset } from "./publicAsset";
 import { getResidentProfile, getResidentSession, ResidentAccount, signOutResident } from "./residentAuth";
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
+import { passwordRecoveryState } from "./passwordRecoveryState";
 
 /* MARKER-MAKE-KIT-INVOKED */
 
@@ -30,11 +33,11 @@ export interface RegisteredUser {
 }
 
 type UserType = "user" | "admin" | null;
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings";
 
 const PAGE_LABELS: Record<Page, string> = {
   home: "HOME",
-  chat: "LAGABOT",
+  chat: "BANOY",
   book: "BOOK",
   dashboard: "DASHBOARD",
   admin: "ADMIN",
@@ -45,6 +48,7 @@ const PAGE_LABELS: Record<Page, string> = {
   "staff-residents": "RESIDENT MASTERLIST",
   "staff-schedule": "WALK-IN SCHEDULE",
   "staff-news": "LANDING PAGE NEWS",
+  "staff-settings": "SERVICES & BOOKING",
 };
 
 export default function App() {
@@ -60,6 +64,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<Page>("home");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLanding, setShowLanding] = useState(!staffRoute);
+  const recoveringPassword = useSyncExternalStore(passwordRecoveryState.subscribe, passwordRecoveryState.getSnapshot);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -68,7 +73,7 @@ export default function App() {
     const loadSession = async () => {
       try {
         const account = await getResidentSession();
-        if (!active) return;
+        if (!active || passwordRecoveryState.getSnapshot()) return;
         if (staffRoute && account?.role !== "staff") {
           if (account) await signOutResident();
           setResidentAccount(null);
@@ -97,19 +102,20 @@ export default function App() {
       }
     };
 
-    void loadSession();
     const { data: authListener } = client.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY" && active) passwordRecoveryState.begin();
       if (event === "SIGNED_OUT" && active) {
         setResidentAccount(null);
         setLoggedInAs(null);
         setUserName("");
       }
     });
+    void loadSession();
     return () => {
       active = false;
       authListener.subscription.unsubscribe();
     };
-  }, [staffRoute]);
+  }, [staffRoute, recoveringPassword]);
 
   const handleLogin = (userType: UserType, name: string, account?: ResidentAccount) => {
     if (account) setResidentAccount(account);
@@ -137,6 +143,20 @@ export default function App() {
     if (window.location.pathname === "/staff") window.history.replaceState(null, "", "/");
   };
 
+  if (recoveringPassword) {
+    const returnToLogin = () => {
+      const staff = staffRoute || new URLSearchParams(window.location.search).get("staff") === "1";
+      window.history.replaceState(null, "", staff ? "/staff" : "/");
+      setLoggedInAs(null); setResidentAccount(null); setUserName(""); setShowLanding(false);
+      passwordRecoveryState.clear();
+    };
+    const cancelRecovery = async () => {
+      await signOutResident();
+      returnToLogin();
+    };
+    return <div className="flex min-h-dvh items-center justify-center bg-[#edf1ee] p-4"><PasswordRecovery mode="update" onComplete={returnToLogin} onBack={cancelRecovery} /></div>;
+  }
+
   if (!loggedInAs) {
     if (!authReady) {
       return <div className="flex min-h-screen items-center justify-center bg-[#edf1ee] text-base font-semibold text-[#123323]">Connecting to the resident database…</div>;
@@ -160,7 +180,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex h-dvh bg-background overflow-hidden">
       <Toaster />
 
       <Sidebar
@@ -174,17 +194,19 @@ export default function App() {
       />
 
       {/* Main content area — shifted right on desktop, full width on mobile */}
-      <div className="flex flex-col flex-1 md:ml-[192px] min-w-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:ml-[192px]">
 
         {/* Mobile top bar */}
         <header
-          className="flex items-center gap-3 px-4 py-3 bg-white flex-shrink-0 md:px-6"
+          className="flex shrink-0 items-center gap-2 px-3 py-3 bg-white sm:gap-3 sm:px-4 md:px-6"
           style={{ borderBottom: "1px solid #c4c0b9" }}
         >
           <button
             onClick={() => setSidebarOpen(true)}
             className="w-8 h-8 flex items-center justify-center text-foreground hover:bg-secondary transition-colors md:hidden"
             aria-label="Open menu"
+            aria-expanded={sidebarOpen}
+            aria-controls="portal-navigation"
           >
             <Menu className="w-4 h-4" />
           </button>
@@ -207,7 +229,7 @@ export default function App() {
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#edf5ee] text-sm font-bold text-[#123323]">
                 {userName.charAt(0).toUpperCase()}
               </div>
-              <div className="max-w-[130px]">
+              <div className="hidden max-w-[130px] sm:block">
                 <div className="truncate text-sm font-bold text-[#122d1f]">{userName}</div>
                 <div className="text-xs text-[#53645b]">{loggedInAs === "admin" ? "Staff" : "Resident"}</div>
               </div>
@@ -225,7 +247,7 @@ export default function App() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto">
           {activePage === "home" && <HomePage setActivePage={setActivePage} />}
           {activePage === "chat" && <ChatPage />}
           {activePage === "book" && residentAccount?.role === "resident" && (
@@ -239,6 +261,7 @@ export default function App() {
           {activePage === "staff-residents" && loggedInAs === "admin" && <AdminServicesPage key="residents" initialTab="residents" />}
           {activePage === "staff-schedule" && loggedInAs === "admin" && <AdminServicesPage key="staff-schedule" initialTab="schedule" />}
           {activePage === "staff-news" && loggedInAs === "admin" && <LandingNewsManager />}
+          {activePage === "staff-settings" && loggedInAs === "admin" && <ServiceSettingsPage />}
           {activePage === "concerns" && residentAccount?.role === "resident" && (
             <ConcernsPage
               residentName={residentAccount.name}

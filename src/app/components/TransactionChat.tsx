@@ -54,7 +54,7 @@ export default function TransactionChat({ reference, resident }: TransactionChat
       if (resident.role === "staff") {
         try {
           await sendResidentNotification({ type: "staff_reply", reference, message: trimmedBody });
-          toast.success("Message sent and resident email notification delivered.");
+          toast.success("Message saved. Email notification submitted for delivery.");
         } catch (notificationError) {
           console.error("Staff reply was saved, but its resident email could not be sent.", notificationError);
           toast.error(`Message sent, but the resident email failed: ${notificationError instanceof Error ? notificationError.message : "Unknown email delivery error."}`);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Bell, ChevronRight, MapPin, Phone, Clock } from "lucide-react";
 import { getPublicPosts, PublicPost, subscribePublicPosts } from "../portalData";
 import { publicAsset } from "../publicAsset";
+import { useOfficeSettings } from "../useOfficeSettings";
 
 type Page = "home" | "chat" | "book" | "dashboard" | "admin";
 
@@ -18,8 +19,8 @@ const quickLinks = [
 
 const systemStatuses = [
   { name: "Online Booking", status: "ACTIVE" },
-  { name: "LagaBot FAQ", status: "AVAILABLE" },
-  { name: "Walk-in Service", status: "OPEN" },
+  { name: "Banoy FAQ", status: "AVAILABLE" },
+  { name: "Walk-in Schedule", status: "VIEW" },
 ];
 
 const typeBadgeStyle = (type: string) => {
@@ -31,6 +32,7 @@ const typeBadgeStyle = (type: string) => {
 };
 
 export default function HomePage({ setActivePage }: HomePageProps) {
+  const office = useOfficeSettings();
   const [posts, setPosts] = useState<PublicPost[]>([]);
   useEffect(() => {
     let active = true;
@@ -90,7 +92,7 @@ export default function HomePage({ setActivePage }: HomePageProps) {
           </p>
           <p className="mb-8 max-w-lg text-base leading-relaxed text-[#53645b]">
             Official certification appointment and inquiry system. Book appointments, track
-            requests, and get quick answers from LagaBot.
+            requests, and get quick answers from Banoy.
           </p>
           <div className="flex gap-3 flex-wrap">
             <button
@@ -104,7 +106,7 @@ export default function HomePage({ setActivePage }: HomePageProps) {
               onClick={() => setActivePage("chat")}
               className="flex min-h-12 items-center gap-2 border border-[#c9d1ca] bg-[#f4f8f4] px-6 py-3 text-sm font-bold text-[#123323] transition-all hover:bg-[#edf5ee]"
             >
-              ASK LAGABOT <ChevronRight className="w-3.5 h-3.5" />
+              ASK BANOY <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -116,11 +118,11 @@ export default function HomePage({ setActivePage }: HomePageProps) {
         >
           {[
             { icon: MapPin, text: "Barangay Hall, San Quintin, Pangasinan" },
-            { icon: Phone, text: "Contact information to be confirmed" },
-            { icon: Clock,  text: "Mon-Fri: 8:00 AM – 5:00 PM" },
+            { icon: Phone, text: office?.contact_number || "Contact information to be confirmed" },
+            { icon: Clock, text: office?.office_hours || "Office hours to be confirmed by staff" },
           ].map(({ icon: Icon, text }) => (
-            <span key={text} className="flex items-center gap-1.5 text-sm" style={{ color: "#53645b" }}>
-              <Icon className="w-3 h-3" style={{ color: "#bf6318" }} />
+            <span key={text} className="flex min-w-0 items-center gap-1.5 text-sm" style={{ color: "#53645b" }}>
+              <Icon className="w-3 h-3 flex-shrink-0" style={{ color: "#bf6318" }} />
               {text}
             </span>
           ))}
@@ -243,7 +245,7 @@ export default function HomePage({ setActivePage }: HomePageProps) {
       {/* Floating FAQ assistant shortcut */}
       <button
         onClick={() => setActivePage("chat")}
-        className="fixed bottom-7 right-7 w-14 h-14 text-white flex items-center justify-center shadow-xl transition-opacity hover:opacity-80 z-10"
+        className="fixed bottom-4 right-4 z-10 flex h-12 w-12 items-center justify-center text-white shadow-xl transition-opacity hover:opacity-80 md:bottom-7 md:right-7 md:h-14 md:w-14"
         style={{ background: "#0f0e0c", borderRadius: "50%" }}
       >
         <span className="text-[8px] font-bold tracking-[0.08em] leading-tight text-center">ASK<br />FAQ</span>

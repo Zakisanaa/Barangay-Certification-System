@@ -8,6 +8,7 @@ import {
   subscribeAppointmentRequests,
 } from "../portalData";
 import TransactionChat from "./TransactionChat";
+import RequestHistory from "./RequestHistory";
 import { ResidentAccount } from "../residentAuth";
 
 type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns";
@@ -38,7 +39,10 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
     const refresh = async () => {
       try {
         const loaded = await getAppointmentRequests(userId);
-        if (active) setAllRequests(loaded);
+        if (active) {
+          setAllRequests(loaded);
+          setRequest(previous => previous ? loaded.find(item => item.reference === previous.reference) ?? null : null);
+        }
       } catch (error) {
         console.error("Unable to load resident requests.", error);
         if (active) toast.error(error instanceof Error ? error.message : "Could not load your requests.");
@@ -123,7 +127,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
           <p className="text-sm font-bold tracking-wide text-[#53645b]">RESIDENT SERVICES · DASHBOARD</p>
           <h1 className="mt-1 text-3xl font-black text-[#122d1f]">Your resident dashboard</h1>
           <p className="mt-2 text-base leading-relaxed text-[#53645b]">
-            Welcome, {userName}. Review saved request references and check the latest status recorded in this browser.
+            Welcome, {userName}. Review your requests and check their latest status.
           </p>
         </header>
 
@@ -135,7 +139,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
                 <h2 className="text-lg font-bold text-[#122d1f]">{showArchivedRequests ? "Archived requests" : "Your saved requests"}</h2>
                 <p className="mt-1 text-sm text-[#53645b]">
                   {savedRequests.length
-                    ? `${savedRequests.length} request${savedRequests.length === 1 ? "" : "s"} saved on this browser.`
+                    ? `${savedRequests.length} request${savedRequests.length === 1 ? "" : "s"} found in your account.`
                     : showArchivedRequests ? "Archived requests remain available here." : "Requests submitted from your account will appear here so you can retrieve their reference numbers."}
                 </p>
               </div>
@@ -258,7 +262,9 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
                     : `Your request status is ${request.status.toLowerCase()}. Contact the Barangay office if you need help.`}
                 </p>
               </div>
-              <div className="px-4 pb-4">
+              {request.rejectionReason && <p className="mx-4 mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><strong>Reason for rejection:</strong> {request.rejectionReason}</p>}
+              <div className="space-y-4 px-4 pb-4">
+                <RequestHistory key={request.reference} reference={request.reference} />
                 <TransactionChat reference={request.reference} resident={resident} />
               </div>
             </article>

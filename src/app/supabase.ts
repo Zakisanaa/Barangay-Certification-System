@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { passwordRecoveryState } from "./passwordRecoveryState";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -17,6 +18,11 @@ export const supabase = isSupabaseConfigured
       },
     })
   : null;
+
+// Subscribe immediately; recovery can finish before React mounts.
+supabase?.auth.onAuthStateChange(event => {
+  if (event === "PASSWORD_RECOVERY") passwordRecoveryState.begin();
+});
 
 export function requireSupabase() {
   if (!supabase) {
