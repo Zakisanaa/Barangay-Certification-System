@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from "react";
 import { Send } from "lucide-react";
 import { publicAsset } from "../publicAsset";
-import { getServiceConfiguration } from "../serviceData";
-import { getServiceFaq } from "../serviceFaq";
+import { askBanoy, sendChatFeedback } from "../chatbotData";
+import { toast } from "sonner";
 
 interface Message {
   id: number;
   text: string;
   sender: "user" | "bot";
   timestamp: Date;
+  source?: string | null;
+  questionId?: string | null;
+  helpful?: boolean;
 }
 
 const quickTopics = [
@@ -37,13 +40,15 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Hello! I'm Banoy, Barangay Lagasit's FAQ assistant. I can help with common questions using the information available in this FAQ. How can I help you today?",
+      text: "Hello! I'm Banoy, Barangay Lagasit's assistant. I answer using information approved by barangay staff. What would you like to know?",
       sender: "bot",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState<string | null>(null);
+  const sending = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,21 +56,23 @@ export default function ChatPage() {
   }, [messages, isTyping]);
 
   const sendMessage = async (text: string) => {
-    if (!text.trim() || isTyping) return;
+    if (!text.trim() || sending.current) return;
+    sending.current = true;
     const userMsg: Message = { id: Date.now(), text: text.trim(), sender: "user", timestamp: new Date() };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
     try {
-      const configuration = await getServiceConfiguration();
+      const reply = await askBanoy(text.trim());
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, text: getServiceFaq(text, configuration), sender: "bot", timestamp: new Date() },
+        { id: Date.now() + 1, text: reply.answer, source: reply.source, questionId: reply.questionId, sender: "bot", timestamp: new Date() },
       ]);
-    } catch {
-      setMessages(previous => [...previous, { id: Date.now() + 1, text: "I could not load the current service information. Please try again or send a message to staff in your request conversation.", sender: "bot", timestamp: new Date() }]);
+    } catch (cause) {
+      setMessages(previous => [...previous, { id: Date.now() + 1, text: cause instanceof Error ? cause.message : "I could not load current information. Please try again or contact staff.", sender: "bot", timestamp: new Date() }]);
     } finally {
       setIsTyping(false);
+      sending.current = false;
     }
   };
 
@@ -109,7 +116,7 @@ export default function ChatPage() {
         <div className="hidden px-5 py-4 md:block" style={{ borderTop: "1px solid #c4c0b9", background: "#f5f3f0" }}>
           <div className="mb-1.5 text-[9px] font-bold tracking-[0.15em] text-[#51635d] uppercase">Banoy · FAQ assistant</div>
           <p className="text-[9px] leading-relaxed text-[#53645b]">
-            Answers use service information maintained by barangay staff. Unconfirmed requirements and fees are identified in the response.
+            Answers use knowledge approved by barangay staff. Unanswered questions are sent to staff for review.
           </p>
         </div>
       </div>
@@ -137,13 +144,12 @@ export default function ChatPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-black" />
-            <span className="text-[9px] font-bold tracking-[0.14em]">ONLINE</span>
+            <span className="text-[9px] font-bold tracking-[0.14em]">APPROVED ANSWERS</span>
           </div>
         </div>
 
         {/* Messages */}
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:space-y-6 sm:px-8 sm:py-6">
+        <div role="log" aria-label="Conversation with Banoy" aria-live="polite" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:space-y-6 sm:px-8 sm:py-6">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -168,6 +174,16 @@ export default function ChatPage() {
                 >
                   {msg.text}
                 </div>
+                {msg.source && <p className="mt-2 text-xs text-[#53645b]">Source: {msg.source}</p>}
+                {msg.questionId && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#53645b]">
+                  <span>Was this helpful?</span>
+                  {[true,false].map(helpful=><button key={String(helpful)} type="button" disabled={feedbackBusy===msg.questionId || msg.helpful===helpful} aria-pressed={msg.helpful===helpful} className="min-h-11 rounded border border-[#c9d1ca] bg-white px-3 font-semibold disabled:opacity-50" onClick={async()=>{
+                    setFeedbackBusy(msg.questionId!);
+                    try { await sendChatFeedback(msg.questionId!,helpful);setMessages(previous=>previous.map(message=>message.id===msg.id?{...message,helpful}:message)); }
+                    catch(cause){toast.error(cause instanceof Error?cause.message:"Could not save feedback.");}
+                    finally{setFeedbackBusy(null);}
+                  }}>{helpful?"Yes":"No"}</button>)}
+                </div>}
                 <div
                   className="text-[9px] font-bold tracking-[0.08em] mt-1.5"
                   style={{ color: "#9e9b96" }}
@@ -224,6 +240,8 @@ export default function ChatPage() {
           >
             <input
               value={input}
+              maxLength={1000}
+              aria-label="Your question for Banoy"
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type your question here..."
               className="min-w-0 flex-1 px-3 py-3 text-base outline-none transition-colors sm:px-5 sm:text-xs"
@@ -238,7 +256,7 @@ export default function ChatPage() {
             />
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() || isTyping}
               aria-label="Send message"
               className="flex items-center gap-2 px-5 py-3 text-[10px] font-bold tracking-[0.12em] text-white transition-opacity disabled:opacity-40"
               style={{ background: "#0f0e0c", fontFamily: "'Space Mono', monospace" }}
@@ -248,7 +266,7 @@ export default function ChatPage() {
             </button>
           </form>
           <p className="text-[9px] mt-2.5 tracking-[0.06em]" style={{ color: "#bf6318" }}>
-            FAQ answers are informational and may be incomplete. Confirm official requirements and fees with the Barangay Hall.
+            Questions and feedback may be reviewed by barangay staff to improve answers. Confirm official requirements and fees with the Barangay Hall.
           </p>
         </div>
       </div>

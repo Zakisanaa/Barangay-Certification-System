@@ -96,4 +96,16 @@ Previously stored localStorage accounts, requests, messages, concerns, and sched
 
 ## External integrations
 
-Supabase database setup does not by itself activate OpenAI, email/SMS delivery, or file storage. Those require separately deployed Edge Functions/storage policies and provider credentials stored as server-side secrets, never in the frontend environment.
+Email delivery uses the deployed `notify-resident` and `resend-webhook` functions. Banoy uses the deployed `banoy-chat` function and Supabase's built-in `gte-small` embedding model; it does not require an external AI API key. SMS is not configured.
+
+## Announcement photos and Banoy knowledge
+
+Apply `20261015000100_announcement_photos_and_banoy.sql` and deploy `banoy-chat`. The migration adds the public `announcement-images` bucket (JPG/PNG/WebP, 5 MB) with staff-only uploads and deletion of unused files. Photos appear on the public landing page and resident home. Photos are optional; keep important information in the announcement text for accessibility and chatbot answers. Published photos are public assets.
+
+Staff can open **Banoy knowledge** to save drafts, publish approved question-and-answer pairs, add up to 15 alternate questions, and test a draft privately. **Refresh learning** indexes all pending published entries in small batches. Saving a published answer indexes it immediately; if inference is unavailable, it stays saved and can be indexed again later. The assistant still matches approved wording while the model is unavailable.
+
+The pre-trained model matches questions by meaning. Teaching adds office-approved knowledge; it does not retrain the underlying model weights. The built-in model supports English. Add Filipino question examples for matching local wording. Banoy returns the approved answer with its source, rather than inventing missing information. Ambiguous or weak matches enter a staff review queue. Residents can mark replies unhelpful; staff can teach an answer from those questions or mark them reviewed. Question history is visible only to its owner and staff. Admin tests do not enter resident question history.
+
+Service information and announcement text are synchronized into Banoy knowledge by database triggers. Editing or archiving source information invalidates its previous learned vector. Current text can be matched immediately; the function refreshes relevant pending vectors during a question, and staff can index the entire knowledge base with **Refresh learning**. No school IDs, private certificates, or resident records enter the knowledge base.
+
+`banoy-chat` validates the signed-in user and staff role on the server, checks ownership of feedback, limits question length, and reserves a database-backed rate limit before inference (15 questions/minute and 150/day per account). Knowledge writes use version checks to protect concurrent staff edits. Training results are saved only when the source version still matches.

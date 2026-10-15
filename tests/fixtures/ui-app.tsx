@@ -16,7 +16,7 @@ const config = {
   slots: [{ label: "8:00 AM - 9:00 AM", start_time: "08:00", capacity: 10, active: true }, { label: "9:00 AM - 10:00 AM", start_time: "09:00", capacity: 10, active: true }],
   closures: [],
 };
-const review = { config, day, resident, staff, account: staff, requests: [request], events: [{ id: "event-1", actor_name: resident.name, status: "PENDING", description: "Request submitted.", created_at: new Date().toISOString() }], deliveries: [], notifications: [], downloads: [], authCallback: null, resetEmail: "", recoveredPassword: "" };
+const review = { config, day, resident, staff, account: staff, requests: [request], events: [{ id: "event-1", actor_name: resident.name, status: "PENDING", description: "Request submitted.", created_at: new Date().toISOString() }], deliveries: [], notifications: [], downloads: [], authCallback: null, resetEmail: "", recoveredPassword: "", posts: [], imageUrls: {}, removedImages: [], knowledge: [], chatQuestions: [] };
 Object.assign(window, { __review: review });
 const root = createRoot(document.getElementById("root")!);
 let scenario = 0;

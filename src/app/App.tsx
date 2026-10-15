@@ -15,6 +15,7 @@ import WalkInSchedulePage from "./components/WalkInSchedulePage";
 import ConcernsPage from "./components/ConcernsPage";
 import ResidentProfilePage from "./components/ResidentProfilePage";
 import ServiceSettingsPage from "./components/ServiceSettingsPage";
+import ChatbotKnowledgePage from "./components/ChatbotKnowledgePage";
 import PasswordRecovery from "./components/PasswordRecovery";
 import { publicAsset } from "./publicAsset";
 import { getResidentProfile, getResidentSession, ResidentAccount, signOutResident } from "./residentAuth";
@@ -33,7 +34,7 @@ export interface RegisteredUser {
 }
 
 type UserType = "user" | "admin" | null;
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings" | "staff-banoy";
 
 const PAGE_LABELS: Record<Page, string> = {
   home: "HOME",
@@ -49,6 +50,7 @@ const PAGE_LABELS: Record<Page, string> = {
   "staff-schedule": "WALK-IN SCHEDULE",
   "staff-news": "LANDING PAGE NEWS",
   "staff-settings": "SERVICES & BOOKING",
+  "staff-banoy": "BANOY KNOWLEDGE",
 };
 
 export default function App() {
@@ -262,6 +264,7 @@ export default function App() {
           {activePage === "staff-schedule" && loggedInAs === "admin" && <AdminServicesPage key="staff-schedule" initialTab="schedule" />}
           {activePage === "staff-news" && loggedInAs === "admin" && <LandingNewsManager />}
           {activePage === "staff-settings" && loggedInAs === "admin" && <ServiceSettingsPage />}
+          {activePage === "staff-banoy" && loggedInAs === "admin" && <ChatbotKnowledgePage />}
           {activePage === "concerns" && residentAccount?.role === "resident" && (
             <ConcernsPage
               residentName={residentAccount.name}

@@ -2,7 +2,7 @@ import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, Messa
 import { publicAsset } from "../publicAsset";
 import { useEffect, useRef } from "react";
 
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings" | "staff-banoy";
 
 interface SidebarProps {
   activePage: Page;
@@ -31,6 +31,7 @@ const staffNavItems = [
   { id: "staff-schedule" as Page, label: "Walk-in schedule", icon: Clock },
   { id: "staff-news" as Page, label: "Landing page news", icon: MessageSquare },
   { id: "staff-settings" as Page, label: "Services & booking", icon: Settings },
+  { id: "staff-banoy" as Page, label: "Banoy knowledge", icon: MessageSquare },
 ];
 
 export default function Sidebar({ activePage, setActivePage, userName, userType, userId, isOpen, onClose }: SidebarProps) {

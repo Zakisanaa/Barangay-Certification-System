@@ -34,7 +34,7 @@ before(async () => {
     create table storage.objects(id uuid default gen_random_uuid(), bucket_id text, name text);
     alter table storage.objects enable row level security;
     grant usage on schema storage to authenticated, service_role;
-    grant select on storage.objects to authenticated;
+    grant select, insert, delete on storage.objects to authenticated;
     create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
     create publication supabase_realtime;
   `);
@@ -43,6 +43,7 @@ before(async () => {
     '20261005000300_school_id_image_upload.sql', '20261005000400_archive_requests_and_concerns.sql',
     '20261014000000_private_certificate_templates.sql', '20261014000100_completed_certificates.sql',
     '20261015000000_booking_and_request_history.sql',
+    '20261015000100_announcement_photos_and_banoy.sql',
   ];
   // PGlite has native gen_random_uuid; the existing optional pgcrypto extension is not required here.
   for (const name of migrationNames) {
@@ -54,6 +55,60 @@ before(async () => {
   day = (await db.query(`select day::date::text as day from generate_series((now() at time zone 'Asia/Manila')::date + 1, (now() at time zone 'Asia/Manila')::date + 7, '1 day') day where extract(isodow from day) < 6 limit 1`)).rows[0].day;
 });
 after(async () => { await db?.close(); });
+
+test('announcement photos are staff-managed and a referenced photo cannot be deleted', async () => {
+  const image='00000000-0000-4000-8000-000000000010/00000000-0000-4000-8000-000000000011.png';
+  await asUser(residentA);
+  await assert.rejects(db.query("insert into storage.objects(bucket_id,name) values('announcement-images',$1)",[image]),/row-level security/);
+  await asUser(staff);
+  await db.query("insert into storage.objects(bucket_id,name) values('announcement-images',$1)",[image]);
+  await db.query("insert into public.public_posts(id,title,content,type,image_path) values('photo-test','Community announcement','Approved details','NOTICE',$1)",[image]);
+  assert.equal((await db.query("delete from storage.objects where bucket_id='announcement-images' and name=$1 returning name",[image])).rows.length,0);
+  await db.query("update public.public_posts set image_path=null where id='photo-test'");
+  assert.equal((await db.query("delete from storage.objects where bucket_id='announcement-images' and name=$1 returning name",[image])).rows.length,1);
+  await db.query("update public.public_posts set archived=true where id='photo-test'");
+  await asUser(residentA);
+  assert.equal((await db.query("select * from public.public_posts where id='photo-test'")).rows.length,0);
+});
+
+test('only staff can teach Banoy, drafts stay private, and source facts invalidate learned vectors', async () => {
+  await asUser(staff);
+  const inserted=(await db.query("insert into public.chatbot_knowledge(title,question,answer,active) values('Learning test','Where do I ask?','Contact the office.',true) returning id")).rows[0];
+  await db.query("insert into public.chatbot_knowledge(title,question,answer) values('Private draft','Draft question','Unapproved answer')");
+  await asUser(residentA);
+  assert.equal((await db.query('select * from public.chatbot_knowledge')).rows.length,0);
+  await assert.rejects(db.query("insert into public.chatbot_knowledge(title,question,answer,active) values('Poison','Question','Wrong',true)"),/row-level security/);
+  await assert.rejects(db.query("select public.chatbot_service_access()"),/permission denied/);
+  await assert.rejects(db.query("update public.chatbot_knowledge set embedding=array_fill(0::real,array[384]) where id=$1",[inserted.id]),/permission denied/);
+  await asUser('', 'service_role');
+  assert.equal((await db.query('select public.chatbot_service_access() as allowed')).rows[0].allowed,true);
+  const vector=Array(384).fill(0);vector[0]=1;
+  await db.query('update public.chatbot_knowledge set embedding=$1,trained_at=now() where id=$2',[vector,inserted.id]);
+  const found=(await db.query('select * from public.match_chatbot_knowledge($1)',[vector])).rows;
+  assert.equal(found[0].id,inserted.id);assert.equal(found[0].similarity,1);
+  await asUser(staff);
+  await db.query("update public.chatbot_knowledge set answer='A newly approved answer.' where id=$1",[inserted.id]);
+  const changed=(await db.query('select embedding,trained_at from public.chatbot_knowledge where id=$1',[inserted.id])).rows[0];
+  assert.equal(changed.embedding,null);assert.equal(changed.trained_at,null);
+  await db.query("update public.service_catalog set fee_description='Verified PHP 80' where request_type='Barangay Clearance'");
+  const service=(await db.query("select answer from public.chatbot_knowledge where source_key='service:Barangay Clearance'")).rows[0];
+  assert.match(service.answer,/Verified PHP 80/);
+  assert.equal((await db.query("select active from public.chatbot_knowledge where source_key='post:photo-test'")).rows[0].active,false);
+});
+
+test('Banoy question review is private and reserves a rate limit before model inference', async () => {
+  await asUser(residentA);
+  const question=(await db.query("select public.reserve_chatbot_question('A question for review') as id")).rows[0].id;
+  assert.equal((await db.query('select * from public.chatbot_questions where id=$1',[question])).rows.length,1);
+  await assert.rejects(db.query('update public.chatbot_questions set answered=true where id=$1',[question]),/permission denied/);
+  await asUser(residentB);
+  assert.equal((await db.query('select * from public.chatbot_questions where id=$1',[question])).rows.length,0);
+  for(let i=0;i<15;i++)await db.query("select public.reserve_chatbot_question('A repeated question')");
+  await assert.rejects(db.query("select public.reserve_chatbot_question('One more question')"),/Please wait/);
+  await asUser(staff);
+  assert.equal((await db.query('select * from public.chatbot_questions where id=$1',[question])).rows.length,1);
+  await db.query('update public.chatbot_questions set resolved=true where id=$1',[question]);
+});
 
 test('database rejects a resident-created approved request and a forged owner', async () => {
   await asUser(residentA);

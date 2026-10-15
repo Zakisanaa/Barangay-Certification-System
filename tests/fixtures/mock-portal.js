@@ -12,8 +12,10 @@ export async function removeSchoolIdImage() {}
 export async function getTransactionMessages() { return []; }
 export async function addTransactionMessage() {}
 export function subscribeTransactionMessages() { return () => {}; }
-export async function getPublicPosts() { return []; }
+export async function getPublicPosts() { return structuredClone((state().posts??[]).filter(post=>!post.archived || state().account?.role==='staff')); }
 export async function savePublicPosts() {}
+export async function savePublicPost(post) { if(state().failAnnouncementSave)throw new Error('Simulated network failure');state().posts=[structuredClone(post),...(state().posts??[]).filter(item=>item.id!==post.id)]; }
+export async function setPublicPostArchived(id,archived) { state().posts.find(post=>post.id===id).archived=archived; }
 export function subscribePublicPosts() { return () => {}; }
 export async function getResidentConcerns() { return []; }
 export async function addResidentConcern() {}

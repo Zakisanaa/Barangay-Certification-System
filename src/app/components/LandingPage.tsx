@@ -220,6 +220,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
                     </div>
                     <h3 className="text-lg font-bold text-[#122d1f]">{post.title}</h3>
                     <p className="mt-2 text-base leading-relaxed text-[#53645b]">{post.content}</p>
+                    <AnnouncementImage post={post} />
                   </article>
                 )) : (
                 <p className="px-6 py-5 text-base text-[#53645b]">There are no current public announcements.</p>
@@ -313,3 +314,4 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
     </div>
   );
 }
+import AnnouncementImage from "./AnnouncementImage";

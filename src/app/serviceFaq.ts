@@ -1,4 +1,12 @@
-import type { ServiceConfiguration } from "./serviceData";
+interface ServiceConfiguration {
+  services: { request_type: string; active: boolean; requirements: string; fee_description: string; processing_time: string; softcopy_available: boolean }[];
+  office: { contact_number: string; contact_email: string; address: string; office_hours: string };
+}
+
+export function getRecognizedServiceFaq(query: string, config: ServiceConfiguration): string | null {
+  const answer = getServiceFaq(query, config);
+  return answer.startsWith("I can help with") ? null : answer;
+}
 
 export function getServiceFaq(query: string, config: ServiceConfiguration): string {
   const text = query.toLowerCase().trim();

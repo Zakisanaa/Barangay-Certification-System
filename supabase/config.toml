@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.configure-delivery-tracking]
 verify_jwt = true
+
+[functions.banoy-chat]
+verify_jwt = true

@@ -9,6 +9,8 @@ export interface PublicPost {
   type: PostType;
   publishedAt: string;
   archived: boolean;
+  imagePath?: string | null;
+  imageAlt?: string;
 }
 
 export type RequestStatus = "PENDING" | "APPROVED" | "COMPLETED" | "REJECTED";
@@ -75,6 +77,7 @@ export interface WalkInShift {
 
 interface PublicPostRow {
   id: string; title: string; content: string; type: PostType; published_at: string; archived: boolean;
+  image_path?: string | null; image_alt?: string;
 }
 interface AppointmentRow {
   reference: string; owner_id: string; full_name: string; address: string; voter_id: string;
@@ -96,7 +99,7 @@ interface ShiftRow {
 }
 
 function toPost(row: PublicPostRow): PublicPost {
-  return { id: row.id, title: row.title, content: row.content, type: row.type, publishedAt: row.published_at, archived: row.archived };
+  return { id: row.id, title: row.title, content: row.content, type: row.type, publishedAt: row.published_at, archived: row.archived, imagePath: row.image_path, imageAlt: row.image_alt ?? "" };
 }
 function toRequest(row: AppointmentRow): AppointmentRequest {
   return {
@@ -158,10 +161,19 @@ export async function savePublicPosts(posts: PublicPost[]): Promise<void> {
   if (!posts.length) return;
   const rows = posts.map((post) => ({
     id: post.id, title: post.title, content: post.content, type: post.type,
-    published_at: post.publishedAt, archived: post.archived,
+    published_at: post.publishedAt, archived: post.archived, image_path: post.imagePath ?? null, image_alt: post.imageAlt ?? "",
   }));
   const { error } = await requireSupabase().from("public_posts").upsert(rows, { onConflict: "id" });
   if (error) reportError("saving announcements", error);
+}
+
+export async function savePublicPost(post: PublicPost): Promise<void> {
+  await savePublicPosts([post]);
+}
+
+export async function setPublicPostArchived(id: string, archived: boolean): Promise<void> {
+  const { error } = await requireSupabase().from("public_posts").update({ archived }).eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 export function subscribePublicPosts(onUpdate: () => void): () => void {

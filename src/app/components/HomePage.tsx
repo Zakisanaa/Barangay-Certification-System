@@ -3,6 +3,7 @@ import { Bell, ChevronRight, MapPin, Phone, Clock } from "lucide-react";
 import { getPublicPosts, PublicPost, subscribePublicPosts } from "../portalData";
 import { publicAsset } from "../publicAsset";
 import { useOfficeSettings } from "../useOfficeSettings";
+import AnnouncementImage from "./AnnouncementImage";
 
 type Page = "home" | "chat" | "book" | "dashboard" | "admin";
 
@@ -176,6 +177,7 @@ export default function HomePage({ setActivePage }: HomePageProps) {
                 </div>
                 <p className="text-base font-bold leading-snug mb-1.5">{a.title}</p>
                 <p className="text-sm leading-relaxed line-clamp-2" style={{ color: "#53645b" }}>{a.content}</p>
+                <AnnouncementImage post={a} />
               </div>
 
             </div>
