@@ -1,6 +1,6 @@
 # Admin and product features
 
-Scope: F01–F14 from `SYSTEM_AUDIT_CHECKLIST.md`. The separate Priority 2 A13–A32 list is outside this release. Existing Priority 1 booking safeguards remain in force.
+Scope: the existing admin and product features. Current unresolved issues are recorded in [KNOWN_ISSUES.md](./KNOWN_ISSUES.md). Existing Priority 1 booking safeguards remain in force.
 
 ## Finding records and adding items
 
@@ -155,7 +155,7 @@ Migration `20261019000100_conversation_attachments.sql` creates the private `con
 
 **Audit history** records actor, time, entity, and before/after values across resident profiles, verification, requests, concerns, walk-ins, fees, issuance, settings, schedules, requirements, templates, public content, knowledge, and staff access. Application users cannot modify it.
 
-**Public site content** edits officials/photos, about text, mission, and vision using version checks. Publish actual office-approved information. **My profile** is available to staff and residents. Email changes require password verification and Supabase confirmation; the profile email follows the accepted Auth email.
+**Public site content** edits officials/photos, about text, mission, and vision using version checks. For **Mission** or **Vision**, enter the approved text, optionally upload a JPG/PNG/WebP image (up to 5 MB), add its description, review the preview, then select **Publish mission** or **Publish vision**. Remove an image and publish again to keep text only. Each section saves independently; existing text is preserved. Migration `20261019001500_mission_vision_images.sql` enables image publishing and protects published images during draft cleanup. Publish actual office-approved information. **My profile** is available to staff and residents. Email changes require password verification and Supabase confirmation; the profile email follows the accepted Auth email.
 
 ## Optional fee ledger
 

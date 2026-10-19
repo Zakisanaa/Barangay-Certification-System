@@ -1,6 +1,6 @@
 # Priority 2 implementation
 
-Scope: A13–A32 in `SYSTEM_AUDIT_CHECKLIST.md`. A15, A16, A20, and the saved-address display were already implemented; their behavior remains covered. Independent Priority 3 and production acceptance items remain separate.
+Scope: the original Priority 2 implementation. Existing behavior remains covered by the tests. See [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) for the current unresolved issues.
 
 Apply `supabase/migrations/20261019000200_priority_two.sql` and `20261019000300_private_list_access.sql`, deploy `notify-resident` and `banoy-chat`, and publish the frontend. The private-list sign-in guard works independently of differences in live table grants; queries also retain RLS. The existing Priority 1 notification worker and schedule continue to process closure and request updates.
 

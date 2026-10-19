@@ -48,3 +48,55 @@ test('only staff with public-content permission can upload or publish leadership
  await db.exec('reset role');await db.query("update public.staff_access set permissions=array['content'] where user_id=$1",[staff]);
  await asUser(staff);await upload();assert.equal((await save(image)).rows[0].value.image,image.image);
 });
+
+const saveStatement=(key,value,version=null)=>db.query('select * from public.save_site_content($1,$2,$3)',[key,JSON.stringify(value),version]);
+
+test('mission and vision retain existing text when upgraded to versioned, audited text and images',async()=>{
+ await upload();
+ for(const key of ['mission','vision']){
+  const legacy=(await saveStatement(key,'Existing '+key)).rows[0];
+  assert.equal(legacy.value,'Existing '+key);
+  const value={text:'Updated '+key+'\nOffice-approved second paragraph.',...image};
+  const saved=(await saveStatement(key,value,legacy.version)).rows[0];
+  assert.equal(saved.version,2);assert.deepEqual(saved.value,value);
+  await rejected(()=>saveStatement(key,{...value,text:'Stale edit'},legacy.version),/changed/);
+  assert.equal((await db.query("select count(*)::int n from public.audit_log where entity='site_content' and record_id=$1",[key])).rows[0].n,2);
+ }
+ await asUser('','anon');
+ const rows=(await db.query("select key,value from public.site_content where key in ('mission','vision') order by key")).rows;
+ assert.equal(rows.length,2);assert.ok(rows.every(row=>row.value.image===image.image&&row.value.text.startsWith('Updated '+row.key)));
+});
+
+test('mission and vision images require a real upload, valid local path, text and accessible descriptions',async()=>{
+ const value={text:'Office-approved mission',...image};
+ await rejected(()=>saveStatement('mission',value),/Upload.*before publishing/);
+ await upload();
+ for(const invalid of [null,[],{}, {...value,text:null},{...value,text:' '},{...value,text:'x'.repeat(4001)},{...value,image:null},{...value,image:'https://example.test/image.png'},{...value,image:'official-images/../private.png'},{...value,alt:null},{...value,alt:''},{...value,alt:'x'.repeat(241)}]){
+  await rejected(()=>saveStatement('mission',invalid),/public text|mission or vision|Describe|Upload/);
+ }
+ assert.equal((await db.query("select count(*)::int n from public.site_content where key='mission'")).rows[0].n,0);
+ const textOnly=(await saveStatement('vision',{text:'  Text without a photo.  ',image:'',alt:'Unused description'})).rows[0];
+ assert.deepEqual(textOnly.value,{text:'Text without a photo.',image:'',alt:''});
+});
+
+test('shared mission and vision photos survive cleanup until every published reference is removed',async()=>{
+ await upload();
+ const value={text:'Office-approved statement',...image};
+ for(const key of ['mission','vision'])await saveStatement(key,value);
+ const remove=()=>db.query("delete from storage.objects where bucket_id='official-images' and name=$1 returning name",[path]);
+ assert.equal((await remove()).rows.length,0);
+ await saveStatement('mission',{text:'Text only',image:'',alt:''},1);
+ assert.equal((await remove()).rows.length,0);
+ await saveStatement('vision','Legacy-compatible text only',1);
+ assert.equal((await remove()).rows.length,1);
+});
+
+test('residents and staff without content access cannot change mission or vision',async()=>{
+ const value={text:'Authorized public statement',image:'',alt:''};
+ await asUser(residentA);
+ await rejected(()=>saveStatement('mission',value),/permission/);
+ await db.exec('reset role');await db.query("update public.staff_access set superadmin=false,permissions=array['requests'] where user_id=$1",[staff]);
+ await asUser(staff);await rejected(()=>saveStatement('vision',value),/permission/);
+ await db.exec('reset role');await db.query("update public.staff_access set permissions=array['content'] where user_id=$1",[staff]);
+ await asUser(staff);assert.deepEqual((await saveStatement('mission',value)).rows[0].value,value);
+});

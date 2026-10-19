@@ -6,3 +6,5 @@ supabase/.temp/
 BRGY. CERTS AND ETC/
 .env*
 !.env.example
+school-submission/
+.vscode/

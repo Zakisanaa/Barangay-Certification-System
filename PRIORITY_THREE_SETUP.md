@@ -1,7 +1,8 @@
 # Priority 3 implementation — A33–A59
 
 This release implements the 27 minor behavior, accessibility, performance, and
-maintenance findings in [SYSTEM_AUDIT_CHECKLIST.md](./SYSTEM_AUDIT_CHECKLIST.md).
+maintenance findings from the implementation review. Current unresolved issues
+are recorded in [KNOWN_ISSUES.md](./KNOWN_ISSUES.md).
 Existing appointment, ID, attachment, staff permission, and fulfillment rules
 remain in force.
 
@@ -56,12 +57,12 @@ No earlier reply is fabricated from later staff knowledge.
 | A47–A49 | Banoy stores original replies, sources, feedback, and times in account-owned history, read 25 at a time. Account changes clear private page state. RLS retains ownership and permitted staff review. Deleted source announcements/services deactivate derived knowledge and clear learned vectors. Non-JSON notification failures retain the underlying service error. |
 | A50 | Every booking ID is checked for nonzero size, allowed MIME/signature, and actual image decoding. Residents see a preview; the upload path also validates the image. |
 | A51–A53 | Portal pages and charts load on demand, checked through the eager module graph. Existing logo/Banoy artwork is resized to WebP; below-fold portraits load lazily. Active date/slot counts have a partial index measured against an isolated 18,000-row fixture. |
-| A54–A58 | Prototype JSX typing is fixed. Commands cover the active app, every source file, and all six functions. Browser tests use dynamic ports, unique profiles, connection/command deadlines, process-exit handling, and a three-minute suite deadline. Unused demos live under `src/app/legacy`; setup documents point to current migrations and workflows. |
+| A54–A58 | Prototype JSX typing is fixed. Commands cover the active app, every source file, and all six functions. Browser tests use dynamic ports, unique profiles, connection/command deadlines, process-exit handling, and a three-minute suite deadline. Unused design prototypes were removed during final cleanup; setup documents point to current migrations and workflows. |
 | A59 | Active labels/timestamps and chart ticks use at least 12px text, with darker small gray labels. Tests exercise mobile, keyboard, and 200% zoom. This targeted review is not a formal accessibility certification. |
 
-The logo is 59,296 bytes and Banoy is 20,160 bytes, down from a combined
-1,644,458 bytes. Originals remain for compatibility. Recreate the optimized
-files with `node scripts/optimize-public-images.mjs` and inspect before release.
+The optimized logo is 59,296 bytes and Banoy is 20,160 bytes. The application
+uses the retained WebP assets. Unused original PNG copies and the one-time
+image conversion script were removed during final cleanup.
 
 ## Verification and operations
 

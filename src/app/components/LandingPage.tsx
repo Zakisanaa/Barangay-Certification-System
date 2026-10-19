@@ -144,7 +144,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
           </div>
         </section>
 
-        <section id="news" className="mx-auto mt-12 grid w-full max-w-[1600px] gap-6 px-4 sm:px-6 lg:grid-cols-[1.3fr_0.7fr]">
+        <section id="news" className="mx-auto mt-12 grid w-full max-w-[1600px] items-start gap-6 px-4 sm:px-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="border border-[#c9d1ca] bg-white">
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#c9d1ca] bg-[#f7faf7] px-6 py-5">
               <div>
@@ -178,21 +178,16 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
             </div>
           </div>
 
-          <div className="grid gap-4">
-            <article className="border border-[#c9d1ca] bg-white p-6">
-              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">{publicContent.missionPublished?'Barangay mission':'Draft for barangay confirmation'}</p>
-              <h2 className="mt-2 text-2xl font-black text-[#122d1f]">Mission</h2>
-              <p className="mt-3 text-base leading-relaxed text-[#53645b]">
-                {publicContent.mission}
-              </p>
-            </article>
-            <article className="border border-[#c9d1ca] bg-white p-6">
-              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">{publicContent.visionPublished?'Barangay vision':'Draft for barangay confirmation'}</p>
-              <h2 className="mt-2 text-2xl font-black text-[#122d1f]">Vision</h2>
-              <p className="mt-3 text-base leading-relaxed text-[#53645b]">
-                {publicContent.vision}
-              </p>
-            </article>
+          <div className="grid min-w-0 content-start items-start gap-4 sm:grid-cols-2 lg:grid-cols-1">
+            {(['mission','vision'] as const).map(key=>{
+              const statement=publicContent[key],title=key==='mission'?'Mission':'Vision';
+              return <article key={key} aria-label={`Barangay ${key}`} className="min-w-0 border border-[#c9d1ca] bg-white p-5 sm:p-6">
+                <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">{publicContent[`${key}Published`]?`Barangay ${key}`:'Draft for barangay confirmation'}</p>
+                <h2 className="mt-2 text-2xl font-black text-[#122d1f]">{title}</h2>
+                <p className="mt-3 break-words whitespace-pre-line text-base leading-relaxed text-[#53645b]">{statement.text}</p>
+                {statement.image&&<img loading="lazy" decoding="async" src={getOfficialImageUrl(statement.image)} alt={statement.alt} className="mt-4 h-auto max-h-80 w-full object-contain"/>}
+              </article>;
+            })}
           </div>
         </section>
 

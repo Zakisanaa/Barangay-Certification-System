@@ -10,3 +10,5 @@ supabase
 .env*
 BRGY. CERTS AND ETC
 *.md
+school-submission
+*Credentials-and-Hosting*

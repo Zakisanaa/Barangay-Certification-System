@@ -19,8 +19,7 @@ Deployment and workflow notes:
 - [Priority 1](./PRIORITY_ONE_SETUP.md)
 - [Priority 2](./PRIORITY_TWO_SETUP.md)
 - [Priority 3](./PRIORITY_THREE_SETUP.md)
-- [Audit and outstanding production acceptance checks](./SYSTEM_AUDIT_CHECKLIST.md)
-- [Current completion gaps and recommended next work](./SYSTEM_COMPLETION_REVIEW.md)
+- [Current known issues](./KNOWN_ISSUES.md)
 
 ## Verification
 
@@ -30,10 +29,19 @@ Functions, automated tests, and the production build. Run `npm run test:ui` for
 isolated browser workflows. Tests send no real emails or resident submissions.
 The build also verifies that portal pages and charts are loaded on demand.
 
-Production starts in `src/main.tsx` and `src/app/App.tsx`. Unused design demos
-are isolated in [src/app/legacy](./src/app/legacy/README.md) and included in
-`typecheck:all`. The original design came from the supplied Figma code bundle.
+Production starts in `src/main.tsx` and `src/app/App.tsx`. Unused design
+prototypes were removed during final cleanup. The original design came from
+the supplied Figma code bundle.
 
 Never place service-role keys or email-provider secrets in frontend environment
 variables. Apply migrations before publishing a frontend that depends on them.
 
+
+## Final folder cleanup
+
+Generated dependencies, build output, browser profiles and test results are not
+kept in the finished working folder. Run `npm ci` before running the app or
+checks again. `npm run build` recreates `dist/`; browser checks recreate
+`test-results/`. The original office Word files, local environment configuration,
+Git history, hosting links, application source, migrations and tests are retained.
+School upload files and the separate private handover are in `school-submission/`.
