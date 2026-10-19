@@ -1,0 +1,30 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import vm from 'node:vm';
+import {stripTypeScriptTypes} from 'node:module';
+const source=stripTypeScriptTypes((await fs.readFile(new URL('../supabase/functions/notify-resident/index.ts',import.meta.url),'utf8')).replace(/^import .*createClient.*;\r?\n/,''));
+function fixture(){
+ const s={actor:'staff-1',allowed:true,failUpload:false,loseResponse:false,calls:[],provider:new Map(),files:new Map(),tables:{resident_profiles:[{id:'staff-1',role:'staff',first_name:'Staff',last_name:'One'},{id:'staff-2',role:'staff',first_name:'Staff',last_name:'Two'},{id:'resident-1',role:'resident',first_name:'Juan',last_name:'Dela Cruz',email:'original@example.test'}],appointment_requests:[{reference:'CERT-1',owner_id:'resident-1',request_type:'Barangay Clearance',delivery_format:'Softcopy',status:'APPROVED'}],certificate_templates:[{request_type:'Barangay Clearance',storage_path:'form.docx',label:'Barangay Clearance',active:true}],certificate_deliveries:[]}};
+ function query(table){const filters=[];let update,insert,single=false;const b={select(){return b;},eq(k,v){filters.push(row=>row[k]===v);return b;},is(k,v){filters.push(row=>(row[k]??null)===v);return b;},update(v){update=v;return b;},insert(v){insert=v;return b;},single(){single=true;return b;},maybeSingle(){single=true;return b;},then(resolve,reject){return Promise.resolve().then(()=>{const all=s.tables[table]??=[];let rows=all.filter(row=>filters.every(test=>test(row)));if(insert){const row={provider_id:null,last_event_at:null,status:'pending',created_at:new Date().toISOString(),...insert};all.push(row);rows=[row];}if(update)rows.forEach(row=>Object.assign(row,update));return{data:structuredClone(single?rows[0]??null:rows),error:null};}).then(resolve,reject);}};return b;}
+ const client={from:query,auth:{async getUser(){return{data:{user:{id:s.actor}},error:null};}},async rpc(){return{data:s.allowed,error:null};},storage:{from(){return{async upload(path,bytes){if(s.failUpload)return{error:{message:'Upload failed'}};s.files.set(path,new Uint8Array(bytes));const row=s.tables.certificate_deliveries.find(row=>row.storage_path===path);if(row)row.file_available=true;return{error:null};},async download(path){const bytes=s.files.get(path);return bytes?{data:new Blob([bytes]),error:null}:{data:null,error:{message:'Missing file'}};}};}}};
+ let handler;vm.runInNewContext(source,{Deno:{env:{get(name){return({SUPABASE_URL:'https://unit.test',SUPABASE_ANON_KEY:'test-anon',SUPABASE_SERVICE_ROLE_KEY:'test-server',RESEND_API_KEY:'test-email',RESEND_FROM_EMAIL:'office@example.test'})[name];}},serve(fn){handler=fn;}},createClient:()=>client,crypto,Response,Request,Uint8Array,TextDecoder,Date,AbortSignal,atob,btoa,console:{error(){}},async fetch(url,options){assert.equal(url,'https://api.resend.com/emails');const key=options.headers['Idempotency-Key'],body=options.body;s.calls.push({key,body});if(s.provider.has(key))assert.equal(s.provider.get(key).body,body,'Retries must preserve the exact provider payload');else s.provider.set(key,{id:'provider-'+s.provider.size,body});if(s.loseResponse){s.loseResponse=false;throw new Error('Response lost');}return Response.json({id:s.provider.get(key).id});}});
+ const send=async body=>{const response=await handler(new Request('https://unit.test/notify',{method:'POST',headers:{Authorization:'Bearer staff-session'},body:JSON.stringify(body)}));return{status:response.status,body:await response.json()};};
+ const id=crypto.randomUUID(),initial={type:'appointment_pdf',reference:'CERT-1',templateName:'form.docx',pdfBase64:btoa('%PDF-1.4\nOriginal signed certificate'),deliveryId:id};return{s,send,id,initial};
+}
+test('a saved certificate retry survives navigation and staff/profile/template changes using its original payload and key',async()=>{
+ const{s,send,id,initial}=fixture();s.loseResponse=true;assert.equal((await send(initial)).status,502);assert.equal(s.provider.size,1);
+ const original=s.calls[0];s.actor='staff-2';s.tables.resident_profiles[2].email='changed@example.test';s.tables.resident_profiles[2].first_name='Changed';s.tables.certificate_templates[0].active=false;
+ assert.equal((await send({type:'appointment_pdf_retry',reference:'CERT-1',deliveryId:id})).status,200);assert.deepEqual(s.calls[1],original);assert.equal(s.provider.size,1);assert.equal(s.tables.certificate_deliveries[0].provider_id,'provider-0');
+ const before=s.calls.length;assert.equal((await send({type:'appointment_pdf_retry',reference:'CERT-1',deliveryId:id})).status,200);assert.equal(s.calls.length,before);
+});
+test('an incomplete PDF upload can resume its original ID, while altered PDF contents cannot reuse that attempt',async()=>{
+ const{s,send,id,initial}=fixture();s.failUpload=true;assert.equal((await send(initial)).status,500);assert.equal(s.calls.length,0);assert.equal(s.tables.certificate_deliveries[0].file_available,undefined);
+ s.failUpload=false;assert.equal((await send({...initial,pdfBase64:btoa('%PDF-1.4\nDifferent certificate')})).status,409);assert.equal(s.calls.length,0);
+ assert.equal((await send(initial)).status,200);assert.equal(s.tables.certificate_deliveries.length,1);assert.equal(s.calls[0].key,'certificate/'+id);
+});
+test('expired and legacy unknown certificate outcomes require review, and unauthorized staff cannot retry',async()=>{
+ const{s,send,id,initial}=fixture();s.loseResponse=true;await send(initial);const row=s.tables.certificate_deliveries[0];row.created_at=new Date(Date.now()-24*3600000).toISOString();assert.equal((await send({type:'appointment_pdf_retry',reference:'CERT-1',deliveryId:id})).status,409);assert.equal(s.calls.length,1);
+ row.created_at=new Date().toISOString();row.email_payload=null;assert.equal((await send({type:'appointment_pdf_retry',reference:'CERT-1',deliveryId:id})).status,409);assert.equal(s.calls.length,1);
+ s.allowed=false;assert.equal((await send({type:'appointment_pdf_retry',reference:'CERT-1',deliveryId:id})).status,403);assert.equal(s.calls.length,1);
+});

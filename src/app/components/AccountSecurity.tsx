@@ -1,0 +1,11 @@
+import { useState } from 'react';
+import { requireSupabase } from '../supabase';
+import type { ResidentAccount } from '../residentAuth';
+import { WorkflowFeedback,useWorkflowAction,workflowCard as card,workflowField as field,workflowPrimary as primary } from './AdminWorkflowUi';
+export default function AccountSecurity({resident}:{resident:ResidentAccount}){
+ const [email,setEmail]=useState(''),[password,setPassword]=useState('');const action=useWorkflowAction();
+ return <section className={card}><h2 className="text-lg font-bold">Change sign-in email</h2><p className="text-sm text-[#53645b]">Verify your current password to request an email change. Follow the confirmation messages sent by Supabase. Your sign-in email and portal email update after the change is accepted.</p><WorkflowFeedback {...action}/>
+ <form className="space-y-3" onSubmit={event=>{event.preventDefault();void action.run(async()=>{const next=email.trim().toLowerCase();if(next===resident.email.toLowerCase())throw new Error('Enter a different email address.');const client=requireSupabase();const verified=await client.auth.signInWithPassword({email:resident.email,password});if(verified.error)throw new Error('Could not verify your current password.');if(verified.data.user?.id!==resident.id)throw new Error('Sign in again with your own account.');const result=await client.auth.updateUser({email:next},{emailRedirectTo:new URL(resident.role==='staff'?'/staff':'/',window.location.origin).toString()});if(result.error)throw new Error(result.error.message);setPassword('');setEmail('');},'Email change requested. Check your email addresses for any required confirmation links.');}}>
+ <label className="grid gap-1 text-sm font-semibold">New email<input required type="email" autoComplete="email" maxLength={254} disabled={action.busy} value={email} onChange={event=>setEmail(event.target.value)} className={field}/></label><label className="grid gap-1 text-sm font-semibold">Current password<input required type="password" autoComplete="current-password" disabled={action.busy} value={password} onChange={event=>setPassword(event.target.value)} className={field}/></label><button className={primary} disabled={action.busy}>Request email change</button>
+ </form></section>;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Download, FileText, Loader2, Mail, Upload, X } from "lucide-react";
-import { getCertificateTemplates } from "../certificateTemplates";
+import { useCertificateTemplates } from "../certificateTemplates";
 import { getResidentProfile } from "../residentAuth";
 import { getCertificateTemplateFile } from "../portalData";
 import type { AppointmentRequest } from "../portalData";
@@ -14,7 +14,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
   onSend: (templateName: string, pdfBase64: string, deliveryId: string) => Promise<void>;
   sending: boolean;
 }) {
-  const templates = getCertificateTemplates(request.requestType);
+  const templates = useCertificateTemplates(request.requestType);
   const [selectedTemplate, setSelectedTemplate] = useState(templates.length === 1 ? templates[0].fileName : "");
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState("");
@@ -30,7 +30,8 @@ export default function CertificateDelivery({ request, onSend, sending }: {
   const fileInput = useRef<HTMLInputElement>(null);
   const selectionVersion = useRef(0);
   const sendInProgress = useRef(false);
-  const deliveryId = useRef(crypto.randomUUID());
+  const deliveryId = useRef<string>(crypto.randomUUID());
+  const resumeAttempt=useRef<{id:string;hash?:string}|null>(null);
   const canSend = request.status === "APPROVED" || request.status === "COMPLETED";
   const busy = sending || preparingEmail;
 
@@ -39,7 +40,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
     setLoadingRecipient(true);
     setRecipientEmail("");
     setRecipientError("");
-    void getResidentProfile(request.ownerId).then(
+    void getResidentProfile(request.ownerId, false).then(
       (profile) => {
         if (!active) return;
         setRecipientEmail(profile.email);
@@ -65,6 +66,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
   useEffect(() => () => { selectionVersion.current += 1; }, []);
 
   const clearPdf = () => {
+    resumeAttempt.current=null;
     deliveryId.current = crypto.randomUUID();
     selectionVersion.current += 1;
     setPdf(null);
@@ -75,6 +77,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
     if (fileInput.current) fileInput.current.value = "";
   };
 
+  useEffect(()=>{const resume=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail?.reference!==request.reference)return;clearPdf();resumeAttempt.current={id:detail.id,hash:detail.hash};deliveryId.current=detail.id;setSelectedTemplate(detail.template);setPdfError('Resuming saved delivery '+detail.id+'. Choose its original PDF.');fileInput.current?.scrollIntoView({block:'center'});};window.addEventListener('resume-certificate',resume);return()=>window.removeEventListener('resume-certificate',resume);},[request.reference]);
   const downloadTemplate = async () => {
     if (!selectedTemplate || downloading) return;
     setDownloading(true);
@@ -84,7 +87,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
       const url = URL.createObjectURL(new Blob([bytes], { type: DOCX_CONTENT_TYPE }));
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = selectedTemplate;
+      anchor.download = `${templates.find(template=>template.fileName===selectedTemplate)?.label??'Certificate template'}.docx`;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {
@@ -96,7 +99,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
 
   const selectPdf = async (file: File | undefined) => {
     if (!file) return;
-    clearPdf();
+    const attempt=resumeAttempt.current;clearPdf();resumeAttempt.current=attempt;if(attempt)deliveryId.current=attempt.id;
     const version = selectionVersion.current;
     setCheckingPdf(true);
     try {
@@ -105,6 +108,7 @@ export default function CertificateDelivery({ request, onSend, sending }: {
       if (file.size < 6 || header !== "%PDF-") {
         throw new Error("Choose a valid PDF file exported from the completed certificate.");
       }
+      if(attempt?.hash){const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await file.arrayBuffer())),byte=>byte.toString(16).padStart(2,'0')).join('');if(digest!==attempt.hash)throw new Error('Choose the original PDF for this saved attempt. Its contents must match.');}
       if (version === selectionVersion.current) setPdf(file);
     } catch (error) {
       if (version === selectionVersion.current) {

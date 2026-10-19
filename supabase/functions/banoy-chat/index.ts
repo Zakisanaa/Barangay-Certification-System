@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { confidentWordingMatch, confidentSemanticMatch, rankByWording, validateKnowledge } from "./retrieval.ts";
+import { confidentWordingMatch, confidentSemanticMatch, hasConflictingExactMatches, rankByWording, validateKnowledge } from "./retrieval.ts";
 import type { Knowledge } from "./retrieval.ts";
 import { getRecognizedServiceFaq } from "../../../src/app/serviceFaq.ts";
 
@@ -35,8 +35,8 @@ Deno.serve(async request => {
     internal = !permission.error && permission.data === true;
     if (!internal) return json({error:"Your session expired. Sign in again."},401);
   }
-  const staffResult = identity.user ? await server.from("resident_profiles").select("role").eq("id",identity.user.id).single() : null;
-  const staff = internal || staffResult?.data?.role === "staff";
+  const staffResult = identity.user ? await caller.rpc('has_staff_permission',{p_permission:'knowledge'}) : null;
+  const staff = internal || (!staffResult?.error && staffResult?.data === true);
   let body: Record<string,unknown>;
   try { const raw = await request.text(); if (raw.length > 25000) return json({error:"Request is too large."},413); body=JSON.parse(raw); if (!body || typeof body !== "object") throw new Error(); }
   catch { return json({error:"Provide a valid request."},400); }
@@ -91,9 +91,8 @@ Deno.serve(async request => {
       if (reserved.error) return json({error:reserved.error.message},429);
       questionId = reserved.data;
     }
-    const loaded = await server.from("chatbot_knowledge").select(columns).eq("active",true).order("id").limit(1000);
-    if (loaded.error) throw loaded.error;
-    const entries: Knowledge[] = loaded.data ?? [];
+    const entries:Knowledge[]=[];
+    for(let from=0;;from+=500){const loaded=await server.from('chatbot_knowledge').select(columns).eq('active',true).order('id').range(from,from+499);if(loaded.error)throw loaded.error;entries.push(...loaded.data??[]);if((loaded.data?.length??0)<500)break;}
     // A draft can be tested privately without making it available to residents.
     if (preview && body.draft) {
       const draft = validateKnowledge(body.draft);
@@ -102,11 +101,12 @@ Deno.serve(async request => {
       if (position>=0) entries.splice(position,1);
       entries.push({...draft,id:draftId,active:true,source_key:null,updated_at:"preview"});
     }
-    let chosen = confidentWordingMatch(question,entries);
+    const conflicting = hasConflictingExactMatches(question, entries);
+    let chosen = conflicting ? null : confidentWordingMatch(question,entries);
     let method = "wording";
     let modelAvailable = true;
     let baseline: string | null = null;
-    if (!chosen) {
+    if (!chosen && !conflicting) {
       const [services, office] = await Promise.all([server.from("service_catalog").select("*"),server.from("office_settings").select("*").eq("id",1).single()]);
       if (services.error || office.error) throw services.error ?? office.error;
       baseline = getRecognizedServiceFaq(question,{services:services.data ?? [],office:office.data});
@@ -129,10 +129,12 @@ Deno.serve(async request => {
       } catch { modelAvailable=false; }
     }
     const answered = Boolean(chosen || baseline);
-    const answer = chosen?.answer ?? baseline ?? `I don't have a confirmed answer for that yet. ${preview ? "Staff can add an approved answer in Banoy knowledge." : "Your question has been saved for staff review."} You can also contact the barangay office or send a message in your request conversation. Please include the document or service name if you can.`;
+    const answer = conflicting
+      ? `I found conflicting approved answers for this question. Please contact the barangay office to confirm. ${preview ? "Review the matching knowledge entries before publishing." : "Your question has been saved for staff review."}`
+      : chosen?.answer ?? baseline ?? `I don't have a confirmed answer for that yet. ${preview ? "Staff can add an approved answer in Banoy knowledge." : "Your question has been saved for staff review."} You can also contact the barangay office or send a message in your request conversation. Please include the document or service name if you can.`;
     const source = chosen?.title ?? (baseline ? "Barangay service settings" : null);
     if (questionId) {
-      const saved = await server.from("chatbot_questions").update({knowledge_id:chosen?.updated_at==="preview" ? null : chosen?.id ?? null,answered}).eq("id",questionId);
+      const saved = await server.from("chatbot_questions").update({knowledge_id:chosen?.updated_at==="preview" ? null : chosen?.id ?? null,answered,answer_text:answer,answer_source:source,answer_method:chosen?method:baseline?"service":"unanswered",answered_at:new Date().toISOString()}).eq("id",questionId);
       if (saved.error) throw saved.error;
     }
     return json({answer,source,answered,questionId,method:chosen?method:baseline?"service":"unanswered",modelAvailable});

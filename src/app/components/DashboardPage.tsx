@@ -1,17 +1,24 @@
+import ListTools,{requestSorts} from './ListTools';
+import LoadFeedback from './LoadFeedback';
+import {manilaTime} from '../manilaTime';
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CalendarDays, FileCheck2, Search, Copy, Download, ClipboardList, Archive } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import {
-  AppointmentRequest,
+  getAppointmentRequestPage,getAppointmentRequest,AppointmentRequest,
   getAppointmentRequests,
   subscribeAppointmentRequests,
 } from "../portalData";
+import ListPager from './ListPager';
 import TransactionChat from "./TransactionChat";
 import RequestHistory from "./RequestHistory";
+import SupportingDocuments from './SupportingDocuments';
+import ResidentTransactionRecords from './ResidentTransactionRecords';
+import AppointmentActions from "./AppointmentActions";
 import { ResidentAccount } from "../residentAuth";
 
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "fees";
 
 interface DashboardPageProps {
   userName: string;
@@ -25,9 +32,15 @@ const statusStyle: Record<AppointmentRequest["status"], string> = {
   APPROVED: "border-green-300 bg-green-50 text-green-900",
   COMPLETED: "border-slate-300 bg-slate-100 text-slate-800",
   REJECTED: "border-red-300 bg-red-50 text-red-900",
+  CANCELLED: "border-slate-300 bg-slate-50 text-slate-700",
+  NO_SHOW: "border-orange-300 bg-orange-50 text-orange-900",
+  EXPIRED: "border-slate-300 bg-slate-50 text-slate-700",
 };
 
 export default function DashboardPage({ userName, userId, resident, setActivePage }: DashboardPageProps) {
+  const [loading,setLoading]=useState(true);
+  const [page,setPage]=useState(0),[total,setTotal]=useState(0),[loadError,setLoadError]=useState(""),[revision,setRevision]=useState(0);
+  const [query,setQuery]=useState(""),[sort,setSort]=useState("newest");
   const [reference, setReference] = useState("");
   const [searched, setSearched] = useState(false);
   const [request, setRequest] = useState<AppointmentRequest | null>(null);
@@ -36,27 +49,28 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
 
   useEffect(() => {
     let active = true;
+    let refreshGeneration=0;
     const refresh = async () => {
+      const generation=++refreshGeneration;setLoading(true);
       try {
-        const loaded = await getAppointmentRequests(userId);
-        if (active) {
-          setAllRequests(loaded);
-          setRequest(previous => previous ? loaded.find(item => item.reference === previous.reference) ?? null : null);
+        const result=await getAppointmentRequestPage({owner:userId,page,query,sort,archived:showArchivedRequests});const loaded=result.rows;const detail=request?.reference?await getAppointmentRequest(request.reference).catch(()=>null):null;
+        if (active&&generation===refreshGeneration) {
+          setAllRequests(loaded);setTotal(result.total);setLoadError("");
+          setRequest(previous=>previous?detail:null);
         }
       } catch (error) {
         console.error("Unable to load resident requests.", error);
-        if (active) toast.error(error instanceof Error ? error.message : "Could not load your requests.");
-      }
+        if(active&&generation===refreshGeneration)setLoadError(error instanceof Error?error.message:"Could not load your requests.");
+      }finally{if(active&&generation===refreshGeneration)setLoading(false);}
     };
     void refresh();
     const unsubscribe = subscribeAppointmentRequests(() => { void refresh(); });
     return () => { active = false; unsubscribe(); };
-  }, [userId]);
+  }, [userId,page,query,sort,showArchivedRequests,revision,request?.reference]);
 
   const savedRequests = useMemo(
     () => [...allRequests]
-      .filter((item) => item.archived === showArchivedRequests)
-      .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt)),
+      .filter((item) => item.archived === showArchivedRequests),
     [allRequests, showArchivedRequests],
   );
 
@@ -64,10 +78,9 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
     event.preventDefault();
     const normalizedReference = reference.trim().toUpperCase();
     try {
-      const foundRequest = (await getAppointmentRequests(userId))
-        .find((item) => item.reference.toUpperCase() === normalizedReference) ?? null;
+      const foundRequest=await getAppointmentRequest(normalizedReference).catch(()=>null);
       setRequest(foundRequest);
-      setAllRequests(await getAppointmentRequests(userId));
+      setRevision(value=>value+1);
       setSearched(true);
     } catch (error) {
       console.error("Unable to search resident requests.", error);
@@ -91,7 +104,8 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
     }
   };
 
-  const downloadBackup = () => {
+  const downloadBackup = async () => {
+    try{const backupRequests=(await getAppointmentRequests(userId)).filter(item=>item.archived===showArchivedRequests);
     if (!savedRequests.length) {
       toast.error("There are no saved request references to back up yet.");
       return;
@@ -101,7 +115,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
       title: "Barangay Lagasit request reference backup",
       createdAt: new Date().toISOString(),
       note: "Reference and status summary only. Keep this file private. It is not an official Barangay confirmation.",
-      requests: savedRequests.map((savedRequest) => ({
+      requests: backupRequests.map((savedRequest) => ({
         reference: savedRequest.reference,
         document: savedRequest.requestType,
         appointmentDate: savedRequest.date,
@@ -118,17 +132,20 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
     anchor.click();
     URL.revokeObjectURL(url);
     toast.success("Request reference backup downloaded.");
+    }catch(cause){toast.error(cause instanceof Error?cause.message:"Could not download all reference records.");}
   };
 
   return (
     <div className="min-h-full bg-[#edf1ee] p-4 md:p-7" style={{ fontFamily: "'Segoe UI', 'Arial', sans-serif" }}>
       <div className="mx-auto max-w-4xl">
+        <LoadFeedback loading={loading} error={loadError} onRetry={()=>setRevision(value=>value+1)} label="requests"/>
         <header className="mb-6 border-b border-[#c9d1ca] pb-5">
           <p className="text-sm font-bold tracking-wide text-[#53645b]">RESIDENT SERVICES · DASHBOARD</p>
           <h1 className="mt-1 text-3xl font-black text-[#122d1f]">Your resident dashboard</h1>
           <p className="mt-2 text-base leading-relaxed text-[#53645b]">
             Welcome, {userName}. Review your requests and check their latest status.
           </p>
+          <button type="button" onClick={()=>setActivePage('fees')} className="mt-3 min-h-11 rounded border border-[#c9d1ca] bg-white px-4 text-sm font-semibold">View fees & receipts</button>
         </header>
 
         <section className="mb-5 rounded border border-[#c9d1ca] bg-white p-5 md:p-6">
@@ -139,15 +156,15 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
                 <h2 className="text-lg font-bold text-[#122d1f]">{showArchivedRequests ? "Archived requests" : "Your saved requests"}</h2>
                 <p className="mt-1 text-sm text-[#53645b]">
                   {savedRequests.length
-                    ? `${savedRequests.length} request${savedRequests.length === 1 ? "" : "s"} found in your account.`
-                    : showArchivedRequests ? "Archived requests remain available here." : "Requests submitted from your account will appear here so you can retrieve their reference numbers."}
+                    ? `${total} request${total === 1 ? "" : "s"} found in your account.`
+                    : loading ? "Loading your requests…" : loadError ? "Request list is unavailable. Retry loading requests." : showArchivedRequests ? "No archived requests." : "Requests submitted from your account will appear here so you can retrieve their reference numbers."}
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setShowArchivedRequests(value => !value)}
+                onClick={() => {setPage(0);setShowArchivedRequests(value => !value);}}
                 className="flex min-h-10 items-center gap-2 rounded border border-[#c9d1ca] px-3 text-sm font-bold text-[#123323]"
               >
                 <Archive className="h-4 w-4" /> {showArchivedRequests ? "View active" : "View archive"}
@@ -165,6 +182,8 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
             </div>
           </div>
 
+          <div className="mt-4"><ListTools label="your requests" query={query} onQuery={value=>{setPage(0);setQuery(value);}} sort={sort} onSort={value=>{setPage(0);setSort(value);}} options={requestSorts.filter(([key])=>!key.startsWith("name_"))}/></div>
+          <ListPager page={page} total={total} onPage={setPage}/>
           {savedRequests.length ? (
             <div className="mt-4 divide-y divide-[#e3e8e3] border-y border-[#e3e8e3]">
               {savedRequests.map((savedRequest) => (
@@ -246,7 +265,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
                   ["Appointment", `${format(parseISO(request.date), "MMMM d, yyyy")} · ${request.timeSlot}`],
                   ["Document format", request.deliveryFormat],
                   ["Purpose", request.purpose],
-                  ["Submitted", format(parseISO(request.submittedAt), "MMMM d, yyyy")],
+                  ["Submitted", manilaTime(request.submittedAt)],
                 ].map(([label, value]) => (
                   <div key={label} className="border-b border-[#e3e8e3] p-4 last:border-b-0">
                     <dt className="text-sm font-semibold text-[#53645b]">{label}</dt>
@@ -263,7 +282,13 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
                 </p>
               </div>
               {request.rejectionReason && <p className="mx-4 mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><strong>Reason for rejection:</strong> {request.rejectionReason}</p>}
+              {request.statusReason && <p className="mx-4 mb-4 rounded border border-[#d9e2da] p-3 text-sm text-[#34483a]"><strong>Status details:</strong> {request.statusReason}</p>}
               <div className="space-y-4 px-4 pb-4">
+                <AppointmentActions key={`actions-${request.reference}`} request={request} staff={false} onUpdated={updated => {
+                  setRequest(updated); setAllRequests(previous => previous.map(item => item.reference === updated.reference ? updated : item));
+                }} />
+                <SupportingDocuments active={!request.archived&&['PENDING','APPROVED'].includes(request.status)} reference={request.reference} ownerId={request.ownerId} staff={false}/>
+                <ResidentTransactionRecords reference={request.reference}/>
                 <RequestHistory key={request.reference} reference={request.reference} />
                 <TransactionChat reference={request.reference} resident={resident} />
               </div>

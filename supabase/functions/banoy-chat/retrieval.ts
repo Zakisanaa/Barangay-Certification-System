@@ -29,9 +29,14 @@ export function confidentWordingMatch(query: string, entries: Knowledge[]) {
   const ranked = rankByWording(query, entries);
   const [first, second] = ranked;
   if (!first) return null;
-  if (first.score === 1 && (!second || second.score < 1 || first.entry.answer === second.entry.answer)) return first.entry;
+  if (first.score === 1) return ranked.filter(item => item.score === 1).every(item => item.entry.answer.trim() === first.entry.answer.trim()) ? first.entry : null;
   if (first.score >= 0.72 && (!second || first.score - second.score >= 0.12)) return first.entry;
   return null;
+}
+
+export function hasConflictingExactMatches(query: string, entries: Knowledge[]) {
+  const exact = rankByWording(query, entries).filter(item => item.score === 1);
+  return new Set(exact.map(item => item.entry.answer.trim())).size > 1;
 }
 
 export function confidentSemanticMatch(matches: {id: string; similarity: number}[], entries: Knowledge[]) {

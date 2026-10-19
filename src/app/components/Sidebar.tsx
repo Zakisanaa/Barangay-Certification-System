@@ -1,8 +1,10 @@
-import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, MessageSquareText, UserRound, Settings } from "lucide-react";
+import { Home, MessageSquare, Calendar, LayoutDashboard, Shield, X, Clock, MessageSquareText, UserRound, Settings, Receipt } from "lucide-react";
 import { publicAsset } from "../publicAsset";
 import { useEffect, useRef } from "react";
+import { canManage } from '../access';
+import type { ResidentAccount } from '../residentAuth';
 
-type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings" | "staff-banoy";
+type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns" | "profile" | "staff-concerns" | "staff-residents" | "staff-schedule" | "staff-news" | "staff-settings" | "staff-banoy" | "staff-inbox" | "staff-queue" | "staff-register" | "staff-payments" | "staff-reports" | "staff-audit" | "staff-accounts" | "staff-content" | "fees";
 
 interface SidebarProps {
   activePage: Page;
@@ -12,6 +14,7 @@ interface SidebarProps {
   userId: string;
   isOpen: boolean;
   onClose: () => void;
+  account?: ResidentAccount | null;
 }
 
 const navItems = [
@@ -19,12 +22,14 @@ const navItems = [
   { id: "chat" as Page, label: "Banoy", icon: MessageSquare },
   { id: "book" as Page, label: "Book", icon: Calendar },
   { id: "dashboard" as Page, label: "Dashboard", icon: LayoutDashboard },
+  { id: "fees" as Page, label: "Fees & receipts", icon: Receipt },
   { id: "schedule" as Page, label: "Walk-in schedule", icon: Clock },
   { id: "concerns" as Page, label: "Concerns & feedback", icon: MessageSquareText },
   { id: "profile" as Page, label: "My profile", icon: UserRound },
 ];
 
 const staffNavItems = [
+  { id: "staff-inbox" as Page, label: "Notification inbox", icon: MessageSquare },
   { id: "admin" as Page, label: "Admin dashboard", icon: Shield },
   { id: "staff-concerns" as Page, label: "Concerns & feedback", icon: MessageSquareText },
   { id: "staff-residents" as Page, label: "Resident masterlist", icon: UserRound },
@@ -32,9 +37,17 @@ const staffNavItems = [
   { id: "staff-news" as Page, label: "Landing page news", icon: MessageSquare },
   { id: "staff-settings" as Page, label: "Services & booking", icon: Settings },
   { id: "staff-banoy" as Page, label: "Banoy knowledge", icon: MessageSquare },
+  { id: "staff-queue" as Page, label: "Office queue", icon: Calendar },
+  { id: "staff-register" as Page, label: "Certificate register", icon: Shield },
+  { id: "staff-payments" as Page, label: "Fee records", icon: Shield },
+  { id: "staff-reports" as Page, label: "Operational reports", icon: LayoutDashboard },
+  { id: "staff-content" as Page, label: "Public site content", icon: Settings },
+  { id: "staff-audit" as Page, label: "Audit history", icon: Clock },
+  { id: "staff-accounts" as Page, label: "Staff accounts", icon: UserRound },
+  { id: "profile" as Page, label: "My profile", icon: UserRound },
 ];
 
-export default function Sidebar({ activePage, setActivePage, userName, userType, userId, isOpen, onClose }: SidebarProps) {
+export default function Sidebar({ activePage, setActivePage, userName, userType, userId, isOpen, onClose, account }: SidebarProps) {
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!isOpen) return;
@@ -53,7 +66,11 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
     return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
   }, [isOpen, onClose]);
   const visibleNavItems = userType === "admin"
-    ? staffNavItems
+    ? staffNavItems.filter(item=>{
+      if(item.id==='admin')return canManage(account,'requests')||canManage(account,'certificates');
+      const permission=({'staff-concerns':'concerns','staff-residents':'residents','staff-schedule':'schedules','staff-news':'content','staff-settings':'settings','staff-banoy':'knowledge','staff-queue':'requests','staff-register':'certificates','staff-payments':'payments','staff-reports':'reports','staff-audit':'audit','staff-content':'content'} as Partial<Record<Page,import('../adminData').StaffPermission>>)[item.id];
+      return item.id==='staff-accounts'?account?.superadmin===true:permission?canManage(account,permission):true;
+    })
     : navItems;
   const handleNav = (page: Page) => {
     setActivePage(page);
@@ -87,13 +104,13 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
         {/* Logo + mobile close */}
         <div className="flex items-center gap-3 px-4 py-4" style={{ borderBottom: "1px solid #c4c0b9" }}>
           <img
-            src={publicAsset("officials/brgylagasit.png")}
+            src={publicAsset("officials/brgylagasit.webp")}
             alt="Barangay Lagasit logo"
             className="w-9 h-9 object-contain rounded-full flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-bold tracking-[0.12em] leading-none text-foreground truncate">BARANGAY LAGASIT</div>
-            <div className="text-[9px] tracking-[0.1em] leading-tight mt-1 text-muted-foreground">PORTAL SYSTEM</div>
+            <div className="text-xs font-bold tracking-[0.12em] leading-none text-foreground truncate">BARANGAY LAGASIT</div>
+            <div className="text-xs tracking-[0.1em] leading-tight mt-1 text-muted-foreground">PORTAL SYSTEM</div>
           </div>
           <button
             type="button"
@@ -106,8 +123,8 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
-          <div className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#758179]">
+        <nav className="portal-nav-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain py-3 space-y-0.5 px-2">
+          <div className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-[0.14em] text-[#758179]">
             {userType === "admin" ? "Staff workspace" : "Resident services"}
           </div>
           {visibleNavItems.map((item) => {
@@ -133,19 +150,19 @@ export default function Sidebar({ activePage, setActivePage, userName, userType,
 
         {/* Resident User */}
         <div className="px-4 py-3" style={{ borderTop: "1px solid #c4c0b9" }}>
-          <div className="text-[9px] font-bold tracking-[0.15em] mb-2.5" style={{ color: "#9e9b96" }}>
+          <div className="text-xs font-bold tracking-[0.15em] mb-2.5" style={{ color: "#61645f" }}>
             {userType === "admin" ? "STAFF USER" : "RESIDENT USER"}
           </div>
           <div className="flex items-center gap-2.5 mb-2.5">
             <div
-              className="w-7 h-7 flex items-center justify-center text-[9px] flex-shrink-0 font-bold"
+              className="w-7 h-7 flex items-center justify-center text-xs flex-shrink-0 font-bold"
               style={{ background: "#eae7e2", border: "1px solid #c4c0b9", color: "#6e6b65" }}
             >
               {userName.charAt(0).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <div className="text-[10px] font-bold truncate tracking-wide">{userName}</div>
-              <div className="truncate text-[9px] tracking-[0.06em]" style={{ color: "#9e9b96" }} title={userId}>ID: {userId}</div>
+              <div className="text-xs font-bold truncate tracking-wide">{userName}</div>
+              <div className="truncate text-xs tracking-[0.06em]" style={{ color: "#61645f" }} title={userId}>ID: {userId}</div>
             </div>
           </div>
         </div>

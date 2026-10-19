@@ -18,6 +18,8 @@ function figmaAssetResolver() {
 
 export default defineConfig({
   base: './',
+  build:{manifest:true,rollupOptions:{output:{onlyExplicitManualChunks:true,manualChunks(id){if(/node_modules[\\/](recharts|d3-|victory-vendor)/.test(id))return 'charts';}}}},
+  server:{watch:{ignored:['**/test-results/**','**/dist/**']}},
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if

@@ -1,3 +1,5 @@
+import { useEffect,useSyncExternalStore } from 'react';
+import { requireSupabase } from './supabase';
 export interface CertificateTemplate {
   fileName: string;
   label: string;
@@ -50,5 +52,14 @@ export const certificateTemplates: CertificateTemplate[] = [
 ];
 
 export function getCertificateTemplates(requestType: string): CertificateTemplate[] {
-  return certificateTemplates.filter((template) => template.requestTypes.includes(requestType));
+  return (manifest??certificateTemplates).filter((template) => template.requestTypes.includes(requestType));
 }
+let manifest:CertificateTemplate[]|null=null;
+let revision=0;
+const listeners=new Set<()=>void>();
+export function setCertificateTemplateManifest(rows:{storage_path:string;label:string;request_type:string;active:boolean}[]){
+ const next=rows.filter(row=>row.active).map(row=>({fileName:row.storage_path,label:row.label,requestTypes:[row.request_type]}));
+ if(JSON.stringify(next)===JSON.stringify(manifest))return;manifest=next;revision++;listeners.forEach(listener=>listener());
+}
+export async function refreshCertificateTemplateManifest(){const {data,error}=await requireSupabase().from('certificate_templates').select('storage_path,label,request_type,active').eq('active',true).order('request_type');if(error)throw new Error(error.message);setCertificateTemplateManifest(data);}
+export function useCertificateTemplates(requestType:string){useSyncExternalStore(listener=>{listeners.add(listener);return()=>{listeners.delete(listener);};},()=>revision,()=>0);useEffect(()=>{void refreshCertificateTemplateManifest().catch(()=>{console.error('Could not refresh certificate templates.');});},[requestType]);return getCertificateTemplates(requestType);}

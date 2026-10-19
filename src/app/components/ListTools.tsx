@@ -1,0 +1,7 @@
+import {useId} from 'react';
+export const nameSorts=[['newest','Newest first'],['oldest','Oldest first'],['name_asc','Name A–Z'],['name_desc','Name Z–A']] as const;
+export const requestSorts=[...nameSorts,['date_asc','Appointment: earliest first'],['date_desc','Appointment: latest first']] as const;
+export default function ListTools({query,onQuery,sort,onSort,label='records',options=nameSorts}:{query:string;onQuery:(value:string)=>void;sort:string;onSort:(value:string)=>void;label?:string;options?:readonly (readonly [string,string])[]}){
+ const id=useId();
+ return <div className="grid min-w-0 gap-3 rounded-md border border-[#c9d1ca] bg-[#f5f8f5] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(180px,240px)]" role="search" aria-label={`Find ${label}`}><label htmlFor={id+'search'} className="grid min-w-0 gap-1 text-sm font-semibold text-[#24362a]">Search {label}<input id={id+'search'} type="search" maxLength={200} value={query} onChange={e=>onQuery(e.target.value)} placeholder={`Search ${label}`} className="min-h-11 w-full rounded border border-[#aebeb2] bg-white px-3 text-base text-[#122d1f]"/></label><label htmlFor={id+'sort'} className="grid min-w-0 gap-1 text-sm font-semibold text-[#24362a]">Sort {label}<select id={id+'sort'} value={sort} onChange={e=>onSort(e.target.value)} className="min-h-11 w-full rounded border border-[#aebeb2] bg-white px-3 text-base text-[#122d1f]">{options.map(([key,name])=><option key={key} value={key}>{name}</option>)}</select></label></div>;
+}

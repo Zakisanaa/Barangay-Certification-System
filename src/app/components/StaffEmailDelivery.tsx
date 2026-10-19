@@ -1,0 +1,11 @@
+import {useEffect,useState} from 'react';
+import {requireSupabase} from '../supabase';
+import {adminRpc,subscribeAdminTables,timeInManila} from '../adminData';
+import {WorkflowFeedback,useWorkflowAction,workflowButton as button} from './AdminWorkflowUi';
+type EmailJob={id:string;subject:string;recipient_email:string;status:string;last_error:string|null;attempts:number;first_attempt_at:string|null;updated_at:string};
+export default function StaffEmailDelivery({id}:{id:string}){
+ const [job,setJob]=useState<EmailJob|null>(null),[error,setError]=useState(''),[revision,setRevision]=useState(0);const action=useWorkflowAction();
+ useEffect(()=>{let active=true;const load=async()=>{try{const result=await requireSupabase().from('notification_outbox').select('id,subject,recipient_email,status,last_error,attempts,first_attempt_at,updated_at').eq('id',id).single();if(result.error)throw result.error;if(active){setJob(result.data);setError('');}}catch{if(active)setError('Could not load this email update.');}};void load();const unsubscribe=subscribeAdminTables(['notification_outbox'],()=>void load());return()=>{active=false;unsubscribe();};},[id,revision]);
+ const canRetry=job&&['failed','pending'].includes(job.status)&&(!job.first_attempt_at||Date.now()-Date.parse(job.first_attempt_at)<23*60*60*1000);
+ return <section className="space-y-2 rounded border bg-[#f7faf7] p-3 text-sm" aria-label="Email delivery details"><WorkflowFeedback error={error||action.error} notice={action.notice}/>{job&&<><p className="font-semibold">{job.subject}</p><p className="break-all">To: {job.recipient_email}</p><p>Status: {job.status.replaceAll('_',' ')} · Attempts: {job.attempts} · {timeInManila(job.updated_at)}</p>{job.last_error&&<p className="whitespace-pre-wrap">{job.last_error}</p>}{canRetry?<button type="button" disabled={action.busy} className={button} onClick={()=>void action.run(async()=>{await adminRpc('retry_notification',{p_id:id});setRevision(value=>value+1);},'Email update queued for retry.')}>Retry queued email</button>:job.status==='needs_review'||job.status==='failed'?<p>Check the provider delivery logs before taking further action. This email cannot be retried safely from the portal.</p>:null}</>}</section>;
+}

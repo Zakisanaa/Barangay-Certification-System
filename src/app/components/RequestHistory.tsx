@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Download, History, Loader2 } from "lucide-react";
-import { getCompletedCertificateUrl, getRequestHistory, subscribeServiceData } from "../serviceData";
-import type { CertificateDeliveryRecord, RequestEvent } from "../serviceData";
+import { getCompletedCertificateUrl, getRequestHistory, retryEmailNotification, retryCertificateDelivery, subscribeServiceData } from "../serviceData";
+import type { CertificateDeliveryRecord, EmailNotificationRecord, RequestEvent } from "../serviceData";
 
 const deliveryLabels: Record<CertificateDeliveryRecord["status"], string> = {
   pending: "Preparing email", sent: "Sent to email provider", delivered: "Delivered to mail server",
@@ -9,9 +9,11 @@ const deliveryLabels: Record<CertificateDeliveryRecord["status"], string> = {
 };
 const formatTime = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
 
-export default function RequestHistory({ reference }: { reference: string }) {
+export default function RequestHistory({ reference, staff = false,certificateStaff=false }: { reference: string; staff?: boolean;certificateStaff?:boolean }) {
   const [events, setEvents] = useState<RequestEvent[]>([]);
   const [deliveries, setDeliveries] = useState<CertificateDeliveryRecord[]>([]);
+  const [notifications, setNotifications] = useState<EmailNotificationRecord[]>([]);
+  const [retrying, setRetrying] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -21,13 +23,13 @@ export default function RequestHistory({ reference }: { reference: string }) {
     const refresh = async () => {
       try {
         const result = await getRequestHistory(reference);
-        if (active) { setEvents(result.events); setDeliveries(result.deliveries); setError(""); }
+        if (active) { setEvents(result.events); setDeliveries(result.deliveries); setNotifications(result.notifications); setError(""); }
       } catch (cause) { if (active) setError(cause instanceof Error ? cause.message : "Could not load request history."); }
       finally { if (active) setLoading(false); }
     };
     setLoading(true);
     void refresh();
-    const unsubscribe = subscribeServiceData(["request_events", "certificate_deliveries"], () => { void refresh(); });
+    const unsubscribe = subscribeServiceData(["request_events", "certificate_deliveries", "notification_outbox"], () => { void refresh(); });
     return () => { active = false; unsubscribe(); };
   }, [reference, reload]);
 
@@ -44,6 +46,20 @@ export default function RequestHistory({ reference }: { reference: string }) {
     <h3 className="flex items-center gap-2 text-base font-bold text-[#122d1f]"><History className="h-4 w-4" />Request history</h3>
     {loading && <p role="status" className="text-sm text-[#53645b]">Loading history…</p>}
     {error && <div role="alert" className="space-y-2 text-sm text-red-800"><p>{error}</p><button type="button" onClick={() => setReload(value => value + 1)} className="min-h-11 rounded border border-red-200 px-3">Retry loading history</button></div>}
+    {!!notifications.length && <div className="space-y-2">
+      <h4 className="text-sm font-bold text-[#34483a]">Email updates</h4>
+      {notifications.map(notification => <article key={notification.id} className="space-y-1 rounded border border-[#d9e2da] p-3 text-sm">
+        <p className="break-words font-semibold">{notification.subject}</p>
+        <p className="text-[#53645b]">{({ pending: "Queued", sending: "Sending", retry: "Retry scheduled", sent: "Accepted by email provider", failed: "Needs staff attention", needs_review: "Staff delivery review required" })[notification.status]} · {formatTime(notification.created_at)}</p>
+        {notification.last_error && <p className="text-red-800">{notification.last_error}</p>}
+        {staff && ["retry", "failed"].includes(notification.status) && <button type="button" disabled={!!retrying} className="min-h-11 rounded border border-[#c9d1ca] px-3 font-semibold disabled:opacity-50" onClick={async () => {
+          setRetrying(notification.id);
+          try { await retryEmailNotification(notification.id); setReload(value => value + 1); }
+          catch (cause) { setError(cause instanceof Error ? cause.message : "Could not retry this notification."); }
+          finally { setRetrying(null); }
+        }}>{retrying === notification.id ? "Queuing…" : "Retry email update"}</button>}
+      </article>)}
+    </div>}
     {!!deliveries.length && <div className="space-y-3">
       <h4 className="text-sm font-bold text-[#34483a]">Completed certificates</h4>
       {deliveries.map(delivery => <article key={delivery.id} className="space-y-2 rounded-md border border-[#d9e2da] bg-[#f7faf7] p-3">
@@ -51,7 +67,9 @@ export default function RequestHistory({ reference }: { reference: string }) {
         <p className="break-all text-xs text-[#53645b]">To: {delivery.recipient_email}</p>
         <p className="text-xs text-[#53645b]">{delivery.sender_name} · {formatTime(delivery.created_at)}</p>
         {delivery.error_message && <p className="text-sm text-red-800">{delivery.error_message}</p>}
-        <button type="button" disabled={!!downloading} onClick={() => void download(delivery)} className="inline-flex min-h-11 items-center gap-2 rounded border border-[#c9d1ca] bg-white px-3 text-sm font-semibold text-[#123323] disabled:opacity-50">{downloading === delivery.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}Download completed PDF</button>
+        {delivery.file_available&&<button type="button" disabled={!!downloading} onClick={() => void download(delivery)} className="inline-flex min-h-11 items-center gap-2 rounded border border-[#c9d1ca] bg-white px-3 text-sm font-semibold text-[#123323] disabled:opacity-50">{downloading === delivery.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}Download completed PDF</button>}
+        {!delivery.file_available&&<p className="text-sm text-amber-900">PDF upload is incomplete. Staff can reselect the original PDF and resume attempt {delivery.id}.</p>}
+        {certificateStaff&&!delivery.provider_id&&['pending','failed'].includes(delivery.status)&&<button type="button" disabled={!!retrying} className="min-h-11 rounded border bg-white px-3 text-sm font-semibold disabled:opacity-50" onClick={async()=>{setRetrying(delivery.id);try{if(delivery.file_available)await retryCertificateDelivery(reference,delivery.id);else{window.dispatchEvent(new CustomEvent('resume-certificate',{detail:{reference,id:delivery.id,template:delivery.template_name,hash:delivery.pdf_hash}}));}setReload(value=>value+1);}catch(cause){setError(cause instanceof Error?cause.message:'Could not resume this delivery.');}finally{setRetrying(null);}}}>{delivery.file_available?'Retry saved certificate email':'Resume PDF upload'}</button>}
       </article>)}
       <p className="text-xs leading-relaxed text-[#53645b]">Delivery confirms acceptance by the recipient's mail server. It does not confirm that the resident opened the email.</p>
     </div>}

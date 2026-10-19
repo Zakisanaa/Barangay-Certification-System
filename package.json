@@ -4,11 +4,14 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node scripts/verify-build.mjs",
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
-    "test:ui": "node tests/ui-smoke.mjs"
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:ui": "node tests/ui-smoke.mjs",
+    "typecheck:all": "tsc -p tsconfig.full.json --noEmit",
+    "typecheck:edge": "deno check supabase/functions/banoy-chat/index.ts supabase/functions/manage-staff/index.ts supabase/functions/notify-resident/index.ts supabase/functions/process-notifications/index.ts supabase/functions/resend-webhook/index.ts supabase/functions/configure-delivery-tracking/index.ts",
+    "check": "npm run typecheck && npm run typecheck:all && npm run typecheck:edge && npm test && npm run build"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

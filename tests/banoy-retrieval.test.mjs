@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {confidentWordingMatch,confidentSemanticMatch,validateKnowledge} from '../supabase/functions/banoy-chat/retrieval.ts';
+import {confidentWordingMatch,confidentSemanticMatch,hasConflictingExactMatches,validateKnowledge} from '../supabase/functions/banoy-chat/retrieval.ts';
 const entry=(id,question,answer='Approved answer',extra={})=>({id,title:question,question,answer,examples:[],active:true,source_key:null,updated_at:'test',...extra});
 test('Banoy matches approved alternate Filipino wording and never returns a draft',()=>{
   const entries=[entry('published','Where can I request assistance?','Contact staff.',{examples:['Saan ako puwedeng humingi ng tulong?']}),entry('draft','Secret draft','Unapproved answer',{active:false})];
@@ -17,6 +17,15 @@ test('semantic selection rejects weak or ambiguous results and ignores inactive 
 });
 test('conflicting exact answers ask for clarification instead of picking an arbitrary answer',()=>{
   assert.equal(confidentWordingMatch('Assistance',[entry('a','Assistance','Answer A'),entry('b','Assistance','Answer B')]),null);
+});
+test('all exact matches are checked for conflicts, including a conflicting third answer',()=>{
+  const same=entry('a','Office hours','Open at 8 AM'),duplicate=entry('b','Office hours','Open at 8 AM'),different=entry('c','Office hours','Open at 10 AM');
+  for(const entries of [[same,duplicate,different],[different,same,duplicate],[same,different,duplicate]]){
+    assert.equal(confidentWordingMatch('Office hours',entries),null);
+    assert.equal(hasConflictingExactMatches('Office hours',entries),true);
+  }
+  assert.equal(hasConflictingExactMatches('Office hours',[same,duplicate,{...different,active:false}]),false);
+  assert.equal(confidentWordingMatch('Office hours',[same,duplicate]).answer,'Open at 8 AM');
 });
 test('knowledge validation bounds training content and preserves literal instructions as plain text',()=>{
   const data={title:'Topic',question:'Question',answer:'Approved answer',examples:[' Question variant ','Question variant'],active:true};

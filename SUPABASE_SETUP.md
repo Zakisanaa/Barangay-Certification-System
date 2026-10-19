@@ -2,26 +2,22 @@
 
 The application uses Supabase Auth, Postgres, row-level security (RLS), and Realtime. It does not fall back to browser storage for resident or transaction data.
 
+Current release notes are in [PRIORITY_THREE_SETUP.md](./PRIORITY_THREE_SETUP.md), with earlier rules in [PRIORITY_ONE_SETUP.md](./PRIORITY_ONE_SETUP.md), [PRIORITY_TWO_SETUP.md](./PRIORITY_TWO_SETUP.md), and [ADMIN_PRODUCT_SETUP.md](./ADMIN_PRODUCT_SETUP.md). Ordinary update emails use the transactional outbox and `process-notifications`; `notify-resident` handles completed PDFs and saved PDF delivery retries.
+
 ## Create and configure a project
 
+The required-ID follow-up migration is `20261019000000_require_booking_id.sql`. All new appointments require a private ID image for every selected ID type; existing requests remain processable. The storage bucket and database column retain their original School ID names for compatibility.
+
 1. Create a Supabase project and keep its database password and service-role key private.
-2. In the Supabase SQL editor, run migrations in `supabase/migrations` in filename order. The latest migration, [`20261015000000_booking_and_request_history.sql`](./supabase/migrations/20261015000000_booking_and_request_history.sql), adds staff service settings, booking capacity checks, request timelines, rejection reasons, and certificate delivery records. For an existing project, apply only migrations that have not already been applied; do not rerun the initial setup over existing tables.
+2. Apply every migration in `supabase/migrations` in filename order. The current final migration is [`20261019000400_priority_three.sql`](./supabase/migrations/20261019000400_priority_three.sql). Prefer the linked CLI's `supabase db push` to preserve migration tracking. For an existing project, apply only unapplied migrations; do not rerun initial setup over existing tables.
 3. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the project API settings. The browser is allowed to use only the publishable/anon key; never use `service_role` in a `VITE_` variable.
 4. Restart the Vite server after setting environment values. For deployment, add those same two public values to the host's environment settings.
 5. In **Authentication → URL Configuration**, set the production app URL as the Site URL and add each app origin to the Redirect URLs allowlist. Registration redirects to the app origin after email confirmation, so include your production Vercel URL and local development URL (for example, `http://localhost:5173`). Enable email confirmations in **Authentication → Providers → Email** and configure Supabase email delivery. Residents must confirm their address before they can sign in. For Vercel preview deployments, allowlist the preview origins you intend to use.
-6. Register a staff identity through the resident registration form and confirm its email before promoting it using the SQL editor:
-
-   ```sql
-   update public.resident_profiles
-   set role = 'staff'
-   where email = 'official-staff-email@example.org';
-   ```
-
-   Do this only for verified, authorized staff. Staff sign in at `/staff`.
+6. Use **Staff accounts** in the superadmin portal to invite staff or add an existing confirmed account and assign permissions. A new project's one-time superadmin bootstrap requires an explicitly selected, confirmed account and server credentials; follow [ADMIN_PRODUCT_SETUP.md](./ADMIN_PRODUCT_SETUP.md). Do not grant staff access by changing a resident's role alone. Staff sign in at `/staff`.
 
 ## Resident email notifications
 
-Authentication SMTP settings send account confirmation and other Supabase Auth emails only. The `notify-resident` Edge Function separately sends email when staff change an appointment or concern status, when staff reply in an appointment conversation, and when staff email a completed certificate PDF.
+Authentication SMTP settings send account confirmation and other Supabase Auth emails. Database transactions enqueue ordinary appointment/concern updates and staff replies in `notification_outbox`; the scheduled `process-notifications` worker sends them with safe retries. `notify-resident` separately sends completed certificate PDFs and resumes saved delivery attempts.
 
 1. Upload the supplied DOCX templates to the private bucket after applying the migrations. From the repository root, set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in your terminal environment and run:
 
@@ -33,7 +29,8 @@ Authentication SMTP settings send account confirmation and other Supabase Auth e
 2. Deploy the function to the same Supabase project connected to the app:
 
    ```sh
-   supabase functions deploy notify-resident
+   supabase functions deploy notify-resident --use-api
+   supabase functions deploy process-notifications --use-api
    ```
 
    If using the Supabase CLI for the first time, log in and link the CLI to the correct project before deploying.
@@ -64,9 +61,9 @@ Appointment applicants selecting **School ID** must upload a JPG, PNG, or WebP p
 
 Staff maintain **Services & booking** from the sidebar. Set verified requirements, fees, processing times, contact details, and office hours there. Unconfirmed fields are explicitly identified in the resident FAQ. Contact details are initially taken from the supplied `BRGY. CERTS AND ETC/Contact Information.txt`.
 
-Each weekday slot initially accepts 10 active requests and the booking window is 90 days. Staff can change these limits, disable slots, and add holidays or office closures. The database checks availability at submission, reserves places for Pending and Approved requests, and prevents a resident from opening another active request for the same document. Archived active requests still reserve places. Services without a matching template offer hardcopy only.
+Each weekday slot initially accepts 10 active requests and the booking window is 90 days. Staff can change these limits, disable slots, and add holidays or office closures. The database checks availability at submission and rescheduling, reserves places for Pending and Approved requests, and prevents a resident from opening another current or future active request for the same document. Past Pending requests expire automatically; staff review attendance for Approved requests. Active requests must be resolved before archiving. Services without a matching template offer hardcopy only.
 
-New requests must begin as Pending. Only staff can approve, reject, complete, archive, or restore requests. Rejections require a reason. Request history records the staff member and timestamp for each change; existing requests start with a clearly identified current-status entry because prior transitions were not recorded.
+New requests must begin as Pending. Residents can cancel their own unfulfilled requests with a reason. Staff can approve, reject, cancel, reschedule, record collection or a no-show, complete, archive, and restore requests subject to the fulfillment and transition checks described in the Priority 1 guide. Rejections require a reason. Request history records the actor and timestamp for each change; existing requests start with a clearly identified current-status entry because prior transitions were not recorded.
 
 ## Certificate delivery tracking
 
@@ -96,6 +93,8 @@ Previously stored localStorage accounts, requests, messages, concerns, and sched
 
 ## External integrations
 
+The F01–F14 admin/product release adds granular staff permissions, private verification/supporting documents, concern conversations, queues, issuance and fee registers, reports, public content, and auditing. Apply the new migrations before publishing the frontend and deploy `manage-staff`, `notify-resident`, and `banoy-chat`. See [ADMIN_PRODUCT_SETUP.md](./ADMIN_PRODUCT_SETUP.md) for setup, the selected superadmin account, and operational instructions.
+
 Email delivery uses the deployed `notify-resident` and `resend-webhook` functions. Banoy uses the deployed `banoy-chat` function and Supabase's built-in `gte-small` embedding model; it does not require an external AI API key. SMS is not configured.
 
 ## Announcement photos and Banoy knowledge
@@ -109,3 +108,11 @@ The pre-trained model matches questions by meaning. Teaching adds office-approve
 Service information and announcement text are synchronized into Banoy knowledge by database triggers. Editing or archiving source information invalidates its previous learned vector. Current text can be matched immediately; the function refreshes relevant pending vectors during a question, and staff can index the entire knowledge base with **Refresh learning**. No school IDs, private certificates, or resident records enter the knowledge base.
 
 `banoy-chat` validates the signed-in user and staff role on the server, checks ownership of feedback, limits question length, and reserves a database-backed rate limit before inference (15 questions/minute and 150/day per account). Knowledge writes use version checks to protect concurrent staff edits. Training results are saved only when the source version still matches.
+
+## Private conversation attachments
+
+Apply `20261019000100_conversation_attachments.sql` before publishing the chat attachment frontend. Request and concern conversations share the private `conversation-attachments` bucket (JPG/PNG/WebP/PDF/DOCX/TXT, three files per message, 5 MB each). Send through `send_transaction_message` or the extended `send_concern_message`; metadata is immutable and the message/file association saves atomically. The existing four-argument concern RPC call remains compatible through the optional attachments argument. Internal-note files stay inaccessible to residents. See `ADMIN_PRODUCT_SETUP.md` for staff use and retry behavior.
+
+## Priority 2 reliability update
+
+Apply `20261019000200_priority_two.sql` and `20261019000300_private_list_access.sql`, deploy `notify-resident` and `banoy-chat`, and publish the matching frontend. These add structured IDs and review acknowledgment, idempotent concern/schedule submissions, staff-edit revisions, server-side list pagination/counts, completed-resident metrics, certificate availability/retry recovery, and an explicit private-list sign-in guard. Existing requests and text schedule IDs are preserved. See [PRIORITY_TWO_SETUP.md](./PRIORITY_TWO_SETUP.md) for validation and operation.

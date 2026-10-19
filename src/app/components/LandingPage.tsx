@@ -1,91 +1,40 @@
+import {manilaTime} from '../manilaTime';
+import LoadFeedback from './LoadFeedback';
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { getPublicPosts, PublicPost, subscribePublicPosts } from "../portalData";
 import { publicAsset } from "../publicAsset";
 import { useOfficeSettings } from "../useOfficeSettings";
 import { isSupabaseConfigured } from "../supabase";
+import { usePublicSiteContent,getOfficialImageUrl } from '../publicSite';
 
 type LandingPageProps = {
   onContinue: () => void;
 };
 
-const officials = [
-  {
-    name: "Punong Barangay Perlita Lugares",
-    role: "Punong Barangay",
-    image: "officials/Punong Barangay Perlita Lugares.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Errol Julian",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Errol Julian.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Ramil Villar",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Ramil Villar.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Rodrigo Aquino III",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Rodrigo Aquino III.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Amado Hidalgo",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Amado Hidalgo.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Felipe Ogaco",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Felipe Ogaco.jpg",
-  },
-  {
-    name: "Brgy. Kgwd. Ricky Carmesis",
-    role: "Barangay Kagawad",
-    image: "officials/Brgy. Kgwd. Ricky Carmesis.jpg",
-  },
-  {
-    name: "Bry. Kgwd. Rodillo Aloot",
-    role: "Barangay Kagawad",
-    image: "officials/Bry. Kgwd. Rodillo Aloot.jpg",
-  },
-  {
-    name: "Brgy Secretary Meka Ella Arandia",
-    role: "Barangay Secretary",
-    image: "officials/Brgy Secretary Meka Ella Arandia.jpg",
-  },
-  {
-    name: "Barangay Treasurer Janelyn Pajarit",
-    role: "Barangay Treasurer",
-    image: "officials/Brgy. Treasurer Janelyn Pajarit.jpg",
-  },
-  {
-    name: "SK Chairman Vannrexsir Peralta",
-    role: "SK Chairman",
-    image: "officials/SK Chairman Vannrexsir Peralta.jpg",
-  },
-];
 
 export default function LandingPage({ onContinue }: LandingPageProps) {
+  const publicContent=usePublicSiteContent();const officials=publicContent.officials;
   const office = useOfficeSettings();
+  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[revision,setRevision]=useState(0);
   const [posts, setPosts] = useState<PublicPost[]>([]);
   useEffect(() => {
     let active = true;
     const refreshPosts = async () => {
+      setLoading(true);
       try {
         const loadedPosts = await getPublicPosts();
-        if (active) setPosts(loadedPosts.filter((post) => !post.archived));
+        if(active){setPosts(loadedPosts.filter(post=>!post.archived));setError("");}
       } catch (error) {
-        console.error("Unable to load public announcements.", error);
-      }
+        if(active)setError(error instanceof Error?error.message:"Could not load announcements.");
+      }finally{if(active)setLoading(false);}
     };
     void refreshPosts();
     const unsubscribe = subscribePublicPosts(() => { void refreshPosts(); });
     return () => { active = false; unsubscribe(); };
-  }, []);
+  }, [revision]);
   const lastUpdated = posts.reduce(
-    (latest, post) => Math.max(latest, new Date(post.publishedAt).getTime()),
+    (latest, post) => Math.max(latest, new Date(post.updatedAt??post.publishedAt).getTime()),
     0
   );
   const navItems = [
@@ -106,7 +55,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <img
-              src={publicAsset("officials/brgylagasit.png")}
+              src={publicAsset("officials/brgylagasit.webp")}
               alt="Barangay Lagasit logo"
               className="h-10 w-10 shrink-0 rounded-full border border-white/20 bg-white object-contain p-1 sm:h-12 sm:w-12"
             />
@@ -148,7 +97,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
               Barangay services, made easier.
             </h1>
             <p className="max-w-xl text-base leading-relaxed text-[#53645b] md:text-lg">
-              Barangay Lagasit provides accessible government services, efficient appointment processing, and timely public updates to strengthen the welfare of the community.
+              {publicContent.about}
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -182,14 +131,14 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
 
           <div className="border border-[#c9d1ca] bg-[#f5f7f5] p-3 shadow-[0_20px_45px_rgba(18,51,35,0.08)]">
             <div className="mb-3 border-b border-[#c9d1ca] pb-2">
-              <div className="text-[9px] font-bold tracking-[0.18em] text-[#67766b] uppercase">Barangay Leadership</div>
+              <div className="text-xs font-bold tracking-[0.18em] text-[#67766b] uppercase">Barangay Leadership</div>
             </div>
             <img
               src={publicAsset("officials/group photo.jpg")}
               alt="Barangay Lagasit officials"
               className="h-[260px] w-full object-contain bg-white sm:h-[360px] lg:h-[420px]"
             />
-            <div className="mt-3 border-t border-[#c9d1ca] pt-2 text-[10px] font-bold tracking-[0.12em] text-[#51635d] uppercase">
+            <div className="mt-3 border-t border-[#c9d1ca] pt-2 text-xs font-bold tracking-[0.12em] text-[#51635d] uppercase">
               Community Governance
             </div>
           </div>
@@ -203,11 +152,12 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
                 <h2 className="mt-1 text-2xl font-black text-[#122d1f]">News and announcements</h2>
               </div>
               <p className="text-sm text-[#53645b]">
-                Last updated: {format(new Date(lastUpdated || Date.now()), "MMMM d, yyyy 'at' h:mm a")}
+                {loading?'Loading announcement activity…':error?'Announcement activity unavailable.':lastUpdated?'Latest announcement activity: '+manilaTime(lastUpdated)+' (Asia/Manila)':'No announcements published yet.'}
               </p>
             </div>
             <div aria-live="polite">
-              {posts.length ? posts
+              <LoadFeedback loading={loading} error={error} onRetry={()=>setRevision(value=>value+1)} label="announcements"/>
+              {!loading&&!error&&(posts.length ? posts
                 .slice()
                 .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
                 .map((post) => (
@@ -215,7 +165,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
                     <div className="mb-2 flex flex-wrap items-center gap-3">
                       <span className="bg-[#123323] px-2.5 py-1 text-xs font-bold text-white">{post.type}</span>
                       <time className="text-sm text-[#53645b]" dateTime={post.publishedAt}>
-                        {format(new Date(post.publishedAt), "MMMM d, yyyy")}
+                        {manilaTime(post.publishedAt,{dateStyle:"long"})}
                       </time>
                     </div>
                     <h3 className="text-lg font-bold text-[#122d1f]">{post.title}</h3>
@@ -224,23 +174,23 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
                   </article>
                 )) : (
                 <p className="px-6 py-5 text-base text-[#53645b]">There are no current public announcements.</p>
-              )}
+              ))}
             </div>
           </div>
 
           <div className="grid gap-4">
             <article className="border border-[#c9d1ca] bg-white p-6">
-              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">Draft for barangay confirmation</p>
+              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">{publicContent.missionPublished?'Barangay mission':'Draft for barangay confirmation'}</p>
               <h2 className="mt-2 text-2xl font-black text-[#122d1f]">Mission</h2>
               <p className="mt-3 text-base leading-relaxed text-[#53645b]">
-                To provide responsive, fair, and accessible public service that supports the safety, welfare, and growth of every Barangay Lagasit resident.
+                {publicContent.mission}
               </p>
             </article>
             <article className="border border-[#c9d1ca] bg-white p-6">
-              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">Draft for barangay confirmation</p>
+              <p className="text-sm font-bold tracking-wide text-[#6a766e] uppercase">{publicContent.visionPublished?'Barangay vision':'Draft for barangay confirmation'}</p>
               <h2 className="mt-2 text-2xl font-black text-[#122d1f]">Vision</h2>
               <p className="mt-3 text-base leading-relaxed text-[#53645b]">
-                A peaceful, inclusive, and progressive barangay where residents can access trusted services and take part in community development.
+                {publicContent.vision}
               </p>
             </article>
           </div>
@@ -249,7 +199,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
         <section id="officials" className="mx-auto mt-16 w-full max-w-[1600px] px-4 sm:px-6">
           <div className="mb-6 flex items-center justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold tracking-[0.18em] text-[#6a766e] uppercase">Officials</p>
+              <p className="text-xs font-bold tracking-[0.18em] text-[#6a766e] uppercase">Officials</p>
               <h2 className="mt-2 text-2xl font-black tracking-[-0.03em] text-[#122d1f] md:text-3xl">Barangay Leadership</h2>
             </div>
           </div>
@@ -257,13 +207,13 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {officials.map((official) => (
               <div key={official.name} className="border border-[#c9d1ca] bg-white p-3 shadow-[0_8px_20px_rgba(17,33,25,0.03)] transition-transform hover:-translate-y-0.5">
-                <img
-                  src={publicAsset(official.image)}
+                  {official.image?<img loading="lazy" decoding="async"
+                    src={getOfficialImageUrl(official.image)}
                   alt={official.name}
-                  className="h-64 w-full object-contain border border-[#e7ece7] bg-[#fafbf9]"
-                />
+                    className="h-64 w-full object-contain border border-[#e7ece7] bg-[#fafbf9]"
+                  />:<div className="flex h-64 items-center justify-center border border-[#e7ece7] bg-[#fafbf9] text-4xl font-semibold text-[#53645b]" aria-label={`Photo unavailable for ${official.name}`}>{official.name.split(' ').filter(Boolean).map(part=>part[0]).slice(0,2).join('')}</div>}
                 <div className="mt-3">
-                  <div className="text-[9px] font-bold tracking-[0.14em] text-[#6c766f] uppercase">{official.role}</div>
+                  <div className="text-xs font-bold tracking-[0.14em] text-[#6c766f] uppercase">{official.role}</div>
                   <div className="mt-1 text-sm font-bold leading-snug text-[#122d1f]">{official.name}</div>
                 </div>
               </div>
@@ -273,7 +223,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
 
         <section id="contact" className="mx-auto mt-16 w-full max-w-[1600px] border border-[#c9d1ca] bg-white p-5 sm:px-6 md:p-10">
           <div className="mb-6">
-            <p className="text-[10px] font-bold tracking-[0.18em] text-[#6a766e] uppercase">Contact</p>
+            <p className="text-xs font-bold tracking-[0.18em] text-[#6a766e] uppercase">Contact</p>
             <h2 className="mt-2 text-2xl font-black tracking-[-0.03em] text-[#122d1f] md:text-3xl">Barangay Contact Information</h2>
           </div>
           <div className="grid gap-6 md:grid-cols-4">
@@ -284,7 +234,7 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
               ["Office Hours", office?.office_hours || "Office hours to be confirmed by staff"],
             ].map(([label, value]) => (
               <div key={label} className="border border-[#d7ddd7] bg-[#f7faf7] p-4">
-                <div className="text-[9px] font-bold tracking-[0.14em] text-[#67766b] uppercase">{label}</div>
+                <div className="text-xs font-bold tracking-[0.14em] text-[#67766b] uppercase">{label}</div>
                 <div className="mt-2 break-words text-sm font-bold leading-relaxed text-[#122d1f]">{value}</div>
               </div>
             ))}
@@ -295,17 +245,17 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
           <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3">
               <img
-                src={publicAsset("officials/brgylagasit.png")}
+                src={publicAsset("officials/brgylagasit.webp")}
                 alt="Barangay Lagasit logo"
                 className="h-10 w-10 rounded-full border border-white/20 bg-white object-contain p-1"
               />
               <div>
-                <div className="text-[10px] font-bold tracking-[0.18em] text-white/65">BARANGAY LAGASIT</div>
+                <div className="text-xs font-bold tracking-[0.18em] text-white/65">BARANGAY LAGASIT</div>
                 <div className="mt-1 text-sm font-bold text-white">Official Portal</div>
               </div>
             </div>
 
-            <div className="text-[10px] font-bold tracking-[0.12em] text-white/70">
+            <div className="text-xs font-bold tracking-[0.12em] text-white/70">
               BARANGAY HALL • SAN QUINTIN • PANGASINAN
             </div>
           </div>

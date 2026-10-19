@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { toast } from "sonner";
 import { publicAsset } from "../publicAsset";
 import { formatResidentAddress, RESIDENT_BARANGAY_ADDRESS } from "../residentAddress";
@@ -18,19 +18,20 @@ interface AuthPageProps {
   onBackToPublicSite?: () => void;
 }
 
-const labelCls = "block text-[9px] font-bold tracking-[0.18em] mb-2";
+const labelCls = "block text-xs font-bold tracking-[0.18em] mb-2";
 
-function FocusInput({ value, onChange, placeholder, type = "text" }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+function FocusInput({ value, onChange, placeholder, label, autoComplete, type = "text" }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; label:string;autoComplete?:string; type?: string;
 }) {
+  const id=useId();
   const [focused, setFocused] = useState(false);
   return (
-    <input
-      type={type}
+    <><label htmlFor={id} className={labelCls}>{label}</label><input
+      id={id} type={type} autoComplete={autoComplete}
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      aria-label={placeholder ?? type}
+      aria-label={label}
       required
       className="min-h-12 w-full px-4 py-3 text-base outline-none transition-all bg-white"
       style={{
@@ -39,7 +40,7 @@ function FocusInput({ value, onChange, placeholder, type = "text" }: {
       }}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-    />
+    /></>
   );
 }
 
@@ -94,7 +95,7 @@ export default function AuthPage({
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const { firstName, lastName, email: rEmail, contact, address, password: rPass, confirm } = reg;
-    if (!firstName || !lastName || !rEmail || !contact || !address || !rPass) { toast.error("Please fill in all required fields"); return; }
+    if (!firstName.trim() || !lastName.trim() || !rEmail.trim() || !contact.trim() || !address.trim() || !rPass) { toast.error("Please fill in all required fields"); return; }
     if (rPass !== confirm) { toast.error("Passwords do not match"); return; }
     if (rPass.length < 8) { toast.error("Use a password with at least 8 characters."); return; }
     if (authBusy) return;
@@ -141,28 +142,28 @@ export default function AuthPage({
         <div>
           <div className="flex items-center gap-3 mb-16">
             <img
-              src={publicAsset("officials/brgylagasit.png")}
+              src={publicAsset("officials/brgylagasit.webp")}
               alt="Barangay Lagasit logo"
               className="w-12 h-12 object-contain rounded-full flex-shrink-0"
             />
             <div>
-              <div className="text-[11px] font-bold tracking-[0.14em] text-white">BARANGAY LAGASIT</div>
-              <div className="text-[9px] tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.4)" }}>PORTAL SYSTEM</div>
+              <div className="text-sm font-bold tracking-[0.14em] text-white">BARANGAY LAGASIT</div>
+              <div className="text-xs tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.8)" }}>PORTAL SYSTEM</div>
             </div>
           </div>
-          <p className="text-[9px] font-bold tracking-[0.2em] mb-4" style={{ color: "rgba(255,255,255,0.35)" }}>— BARANGAY PORTAL SYSTEM v1.0</p>
+          <p className="text-xs font-bold tracking-[0.2em] mb-4" style={{ color: "rgba(255,255,255,0.8)" }}>— BARANGAY PORTAL SYSTEM v1.0</p>
           <h1 className="font-bold text-white leading-tight mb-5" style={{ fontSize: "clamp(28px,3vw,42px)", letterSpacing: "-0.02em" }}>
             Barangay<br />Lagasit
           </h1>
-          <p className="text-[11px] leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>
+          <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.85)" }}>
             Official certification appointment and inquiry system for residents and barangay staff.
           </p>
         </div>
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 24 }}>
-          {[["Online Booking","ACTIVE"],["Banoy FAQ","AVAILABLE"],["Walk-in Schedule","VIEW"]].map(([label, status]) => (
+          {[["Online Booking","BOOK"],["Banoy FAQ","ASK"],["Walk-in Schedule","VIEW"]].map(([label, status]) => (
             <div key={label} className="flex justify-between items-center mb-3">
-              <span className="text-[10px]" style={{ color: "rgba(255,255,255,0.45)" }}>{label}</span>
-              <span className="text-[9px] font-bold tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.75)" }}>{status}</span>
+              <span className="text-xs" style={{ color: "rgba(255,255,255,0.85)" }}>{label}</span>
+              <span className="text-xs font-bold tracking-[0.1em]" style={{ color: "rgba(255,255,255,0.75)" }}>{status}</span>
             </div>
           ))}
         </div>
@@ -185,7 +186,7 @@ export default function AuthPage({
           {view === "forgot" && <PasswordRecovery mode="request" staff={adminOnly} onBack={() => setView("login")} />}
           {view === "confirmation" && (
             <div role="status" className="rounded border border-[#c9d1ca] bg-white p-6">
-              <div className="mb-3 text-[9px] font-bold tracking-[0.22em] text-[#6e6b65]">CHECK YOUR EMAIL</div>
+              <div className="mb-3 text-xs font-bold tracking-[0.22em] text-[#6e6b65]">CHECK YOUR EMAIL</div>
               <h2 className="mb-2 text-2xl font-bold tracking-tight">Confirm your account</h2>
               <p className="text-sm leading-relaxed text-[#53645b]">
                 We sent a confirmation link to <strong className="break-all text-[#123323]">{confirmationEmail}</strong>.
@@ -198,7 +199,7 @@ export default function AuthPage({
                 type="button"
                 onClick={() => void handleResendConfirmation()}
                 disabled={resendingConfirmation || !isSupabaseConfigured}
-                className="mt-5 w-full border border-[#123323] py-3 text-[11px] font-bold tracking-[0.12em] text-[#123323] transition-colors hover:bg-[#f0f5f1] disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-5 w-full border border-[#123323] py-3 text-sm font-bold tracking-[0.12em] text-[#123323] transition-colors hover:bg-[#f0f5f1] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {resendingConfirmation ? "SENDING..." : "RESEND CONFIRMATION EMAIL"}
               </button>
@@ -245,21 +246,21 @@ export default function AuthPage({
               )}
               {!adminOnly ? (
                 <form onSubmit={handleResidentLogin} className="space-y-4">
-                  <div><label className={labelCls}>EMAIL ADDRESS</label><FocusInput value={email} onChange={setEmail} placeholder="your@email.com" type="email" /></div>
-                  <div><label className={labelCls}>PASSWORD</label><FocusInput value={password} onChange={setPassword} placeholder="••••••••" type="password" /></div>
-                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "LOGIN"}</button>
+                  <div><FocusInput label="Email address" autoComplete="username" value={email} onChange={setEmail} placeholder="your@email.com" type="email" /></div>
+                  <div><FocusInput label="Password" autoComplete="current-password" value={password} onChange={setPassword} placeholder="••••••••" type="password" /></div>
+                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-sm font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "LOGIN"}</button>
                   <p className="text-center text-xs leading-relaxed text-[#6e6b65]">
                     Use “Forgot password?” below if you need to reset your password.
                   </p>
                 </form>
               ) : (
                 <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <div><label className={labelCls}>STAFF EMAIL</label><FocusInput value={adminEmail} onChange={setAdminEmail} placeholder="staff@barangay.gov.ph" type="email" /></div>
-                  <div><label className={labelCls}>PASSWORD</label><FocusInput value={adminPass} onChange={setAdminPass} placeholder="••••••••" type="password" /></div>
+                  <div><FocusInput label="Staff email" autoComplete="username" value={adminEmail} onChange={setAdminEmail} placeholder="staff@barangay.gov.ph" type="email" /></div>
+                  <div><FocusInput label="Password" autoComplete="current-password" value={adminPass} onChange={setAdminPass} placeholder="••••••••" type="password" /></div>
                   <div className="px-4 py-3 text-sm leading-relaxed" style={{ background: "#f5f3f0", border: "1px solid #c4c0b9", color: "#53645b" }}>
                     Staff access is verified by Supabase Auth and the database staff role.
                   </div>
-                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "STAFF LOGIN"}</button>
+                  <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-sm font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#123323" }}>{authBusy ? "Signing in..." : "STAFF LOGIN"}</button>
                 </form>
               )}
               <button type="button" disabled={authBusy} onClick={() => setView("forgot")} className="mt-3 min-h-11 text-sm font-semibold text-[#123323] underline">Forgot password?</button>
@@ -274,29 +275,27 @@ export default function AuthPage({
           {view === "register" && (
             <div>
               <div className="mb-8">
-                <div className="text-[9px] font-bold tracking-[0.22em] mb-2" style={{ color: "#9e9b96" }}>NEW ACCOUNT</div>
+                <div className="text-xs font-bold tracking-[0.22em] mb-2" style={{ color: "#53645b" }}>NEW ACCOUNT</div>
                 <h2 className="text-2xl font-bold tracking-tight mb-1">Create resident account</h2>
-                <p className="text-[11px]" style={{ color: "#6e6b65" }}>Register to access barangay services online</p>
+                <p className="text-sm" style={{ color: "#6e6b65" }}>Register to access barangay services online</p>
               </div>
               <div className="mb-4 rounded border border-[#c9d1ca] bg-[#f7faf7] px-3 py-2 text-xs leading-relaxed text-[#34483a]">
                 You’ll need to confirm your email address before signing in. Use an email account you can access.
               </div>
               <form onSubmit={handleRegister} className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div><label className={labelCls}>FIRST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.firstName} onChange={v => setReg(p => ({ ...p, firstName: v }))} placeholder="Juan" /></div>
-                  <div><label className={labelCls}>LAST NAME <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.lastName} onChange={v => setReg(p => ({ ...p, lastName: v }))} placeholder="dela Cruz" /></div>
+                  <div><FocusInput label="First name" autoComplete="given-name" value={reg.firstName} onChange={v => setReg(p => ({ ...p, firstName: v }))} placeholder="Juan" /></div>
+                  <div><FocusInput label="Last name" autoComplete="family-name" value={reg.lastName} onChange={v => setReg(p => ({ ...p, lastName: v }))} placeholder="dela Cruz" /></div>
                 </div>
                 <div>
-                  <label className={labelCls}>EMAIL ADDRESS <span style={{ color: "#b91c1c" }}>*</span></label>
-                  <FocusInput value={reg.email} onChange={v => setReg(p => ({ ...p, email: v }))} placeholder="your@email.com" type="email" />
+                  <FocusInput label="Email address" autoComplete="email" value={reg.email} onChange={v => setReg(p => ({ ...p, email: v }))} placeholder="your@email.com" type="email" />
                 </div>
                 <div>
-                  <label className={labelCls}>CONTACT NUMBER <span style={{ color: "#b91c1c" }}>*</span></label>
-                  <FocusInput value={reg.contact} onChange={v => setReg(p => ({ ...p, contact: v }))} placeholder="+639171234567 or 09XX-XXX-XXXX" type="tel" />
+                  <FocusInput label="Contact number" autoComplete="tel" value={reg.contact} onChange={v => setReg(p => ({ ...p, contact: v }))} placeholder="+639171234567 or 09XX-XXX-XXXX" type="tel" />
                 </div>
                 <fieldset className="grid gap-3">
                   <legend className={labelCls}>HOME ADDRESS <span style={{ color: "#b91c1c" }}>*</span></legend>
-                  <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-[#53645b]">
+                  <label className="grid gap-1.5 text-xs font-bold tracking-wide text-[#53645b]">
                     BARANGAY
                     <select
                       value={RESIDENT_BARANGAY_ADDRESS}
@@ -306,25 +305,24 @@ export default function AuthPage({
                       <option value={RESIDENT_BARANGAY_ADDRESS}>{RESIDENT_BARANGAY_ADDRESS}</option>
                     </select>
                   </label>
-                  <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-[#53645b]">
-                    HOUSE / STREET / SITIO
-                    <FocusInput value={reg.address} onChange={v => setReg(p => ({ ...p, address: v }))} placeholder="House number, street, or sitio" />
-                  </label>
+                  <div>
+                    <FocusInput label="Home address" autoComplete="street-address" value={reg.address} onChange={v => setReg(p => ({ ...p, address: v }))} placeholder="House number, street, or sitio" />
+                  </div>
                 </fieldset>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div><label className={labelCls}>PASSWORD (8+ CHARACTERS) <span style={{ color: "#b91c1c" }}>*</span></label><FocusInput value={reg.password} onChange={v => setReg(p => ({ ...p, password: v }))} placeholder="••••••••" type="password" /></div>
-                  <div><label className={labelCls}>CONFIRM</label><FocusInput value={reg.confirm} onChange={v => setReg(p => ({ ...p, confirm: v }))} placeholder="••••••••" type="password" /></div>
+                  <div><FocusInput label="Password" autoComplete="new-password" value={reg.password} onChange={v => setReg(p => ({ ...p, password: v }))} placeholder="••••••••" type="password" /></div>
+                  <div><FocusInput label="Confirm password" autoComplete="new-password" value={reg.confirm} onChange={v => setReg(p => ({ ...p, confirm: v }))} placeholder="••••••••" type="password" /></div>
                 </div>
-                <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-[11px] font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#0f0e0c" }}>{authBusy ? "Creating account..." : "CREATE ACCOUNT"}</button>
+                <button disabled={!isSupabaseConfigured || authBusy} type="submit" className="w-full py-3 text-sm font-bold tracking-[0.12em] text-white hover:opacity-80 transition-opacity mt-1 disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "#0f0e0c" }}>{authBusy ? "Creating account..." : "CREATE ACCOUNT"}</button>
               </form>
-              <p className="text-center text-[10px] mt-5" style={{ color: "#9e9b96" }}>
+              <p className="text-center text-xs mt-5" style={{ color: "#53645b" }}>
                 Already registered?{" "}
                 <button onClick={() => setView("login")} className="font-bold hover:opacity-70 transition-opacity" style={{ color: "#123323" }}>Sign in here</button>
               </p>
             </div>
           )}
 
-          <p className="text-center text-[9px] mt-8" style={{ color: "#c4c0b9" }}>
+          <p className="text-center text-xs mt-8" style={{ color: "#c4c0b9" }}>
             By using this system, you agree to provide accurate information for appointment requests.
           </p>
         </div>

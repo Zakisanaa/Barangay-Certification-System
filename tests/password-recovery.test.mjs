@@ -43,4 +43,5 @@ test('explicit reset links work with blocked storage; ordinary sign-in links sta
   assert.equal(createPasswordRecoveryState(browser).getSnapshot(), true);
   assert.equal(createPasswordRecoveryState(browserAt('', '#type=signup')).getSnapshot(), false);
   assert.equal(createPasswordRecoveryState(browserAt('', '#type=magiclink')).getSnapshot(), false);
+  assert.equal(createPasswordRecoveryState(browserAt('', '#type=invite')).getSnapshot(), true);
 });

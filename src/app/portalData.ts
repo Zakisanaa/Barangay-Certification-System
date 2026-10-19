@@ -1,8 +1,16 @@
+import {validateAnnouncementImage} from './announcementImages';
+import {allPortalRows,portalList,reliableSubscription,checkRevision} from './reliableData';
+import type {ListOptions} from './reliableData';
 import { requireSupabase, supabase } from "./supabase";
+import { validateProfileFields } from "./profileValidation";
+import {readChatAttachments,sendChatMessage} from './chatAttachments';
+import type {ChatAttachment} from './chatAttachments';
 
 export type PostType = "NOTICE" | "ADVISORY" | "UPDATE";
 
 export interface PublicPost {
+  revision?:number;
+  updatedAt?:string|null;
   id: string;
   title: string;
   content: string;
@@ -13,7 +21,8 @@ export interface PublicPost {
   imageAlt?: string;
 }
 
-export type RequestStatus = "PENDING" | "APPROVED" | "COMPLETED" | "REJECTED";
+export const REQUEST_STATUSES = ["PENDING", "APPROVED", "COMPLETED", "REJECTED", "CANCELLED", "NO_SHOW", "EXPIRED"] as const;
+export type RequestStatus = typeof REQUEST_STATUSES[number];
 export type DeliveryFormat = "Softcopy" | "Hardcopy" | "Both";
 
 export interface AppointmentRequest {
@@ -22,6 +31,7 @@ export interface AppointmentRequest {
   fullName: string;
   address: string;
   voterId: string;
+  idType?:string;idNumber?:string;idReviewAcknowledged?:boolean;idAcknowledgedAt?:string;idAcknowledgmentVersion?:string;
   schoolIdImagePath: string | null;
   requestType: string;
   purpose: string;
@@ -32,6 +42,12 @@ export interface AppointmentRequest {
   archived: boolean;
   submittedAt: string;
   rejectionReason?: string | null;
+  version: number;
+  statusReason: string | null;
+  rescheduleReason: string | null;
+  hardcopyCollectedAt: string | null;
+  hardcopyCollectedBy: string | null;
+  hardcopyCollectedName: string | null;
 }
 
 export interface TransactionMessage {
@@ -41,6 +57,7 @@ export interface TransactionMessage {
   role: "Resident" | "Staff";
   body: string;
   sentAt: string;
+  attachments?: ChatAttachment[];
 }
 
 export interface ResidentConcern {
@@ -53,9 +70,12 @@ export interface ResidentConcern {
   status: "RECEIVED" | "IN_REVIEW" | "RESOLVED";
   archived: boolean;
   submittedAt: string;
+  version?: number;
+  resolutionNote?: string | null;
 }
 
 export interface DirectoryResident {
+  revision?:number;
   id: string;
   firstName: string;
   lastName: string;
@@ -67,6 +87,7 @@ export interface DirectoryResident {
 }
 
 export interface WalkInShift {
+  revision?:number;
   id: string;
   staffName: string;
   role: string;
@@ -76,15 +97,20 @@ export interface WalkInShift {
 }
 
 interface PublicPostRow {
+  updated_at?:string|null;
+  revision?:number;
   id: string; title: string; content: string; type: PostType; published_at: string; archived: boolean;
   image_path?: string | null; image_alt?: string;
 }
 interface AppointmentRow {
   reference: string; owner_id: string; full_name: string; address: string; voter_id: string;
+  id_type?:string;id_number?:string;id_review_acknowledged?:boolean;id_acknowledged_at?:string;id_acknowledgment_version?:string;
   school_id_image_path: string | null;
   request_type: string; purpose: string; appointment_date: string; time_slot: string;
   delivery_format: DeliveryFormat; status: RequestStatus; archived: boolean; submitted_at: string;
   rejection_reason?: string | null;
+  version: number; status_reason: string | null; reschedule_reason: string | null;
+  hardcopy_collected_at: string | null; hardcopy_collected_by: string | null; hardcopy_collected_name: string | null;
 }
 interface MessageRow {
   id: string; author_id: string; author_name: string; author_role: "Resident" | "Staff";
@@ -93,31 +119,37 @@ interface MessageRow {
 interface ConcernRow {
   reference: string; owner_id: string; name: string; contact: string; category: string;
   message: string; status: ResidentConcern["status"]; archived: boolean; submitted_at: string;
+  version?: number; resolution_note?: string | null;
 }
 interface ShiftRow {
+  revision?:number;
   id: string; staff_name: string; role: string; days: string; hours: string; active: boolean;
 }
 
 function toPost(row: PublicPostRow): PublicPost {
-  return { id: row.id, title: row.title, content: row.content, type: row.type, publishedAt: row.published_at, archived: row.archived, imagePath: row.image_path, imageAlt: row.image_alt ?? "" };
+  return { updatedAt:row.updated_at,revision:row.revision,id: row.id, title: row.title, content: row.content, type: row.type, publishedAt: row.published_at, archived: row.archived, imagePath: row.image_path, imageAlt: row.image_alt ?? "" };
 }
 function toRequest(row: AppointmentRow): AppointmentRequest {
   return {
     reference: row.reference, ownerId: row.owner_id, fullName: row.full_name, address: row.address,
+    idType:row.id_type,idNumber:row.id_number,idReviewAcknowledged:row.id_review_acknowledged,idAcknowledgedAt:row.id_acknowledged_at,idAcknowledgmentVersion:row.id_acknowledgment_version,
     voterId: row.voter_id, requestType: row.request_type, purpose: row.purpose, date: row.appointment_date,
     schoolIdImagePath: row.school_id_image_path,
     timeSlot: row.time_slot, deliveryFormat: row.delivery_format, status: row.status, archived: row.archived, submittedAt: row.submitted_at,
     rejectionReason: row.rejection_reason ?? null,
+    version: row.version, statusReason: row.status_reason, rescheduleReason: row.reschedule_reason,
+    hardcopyCollectedAt: row.hardcopy_collected_at, hardcopyCollectedBy: row.hardcopy_collected_by,
+    hardcopyCollectedName: row.hardcopy_collected_name,
   };
 }
 function toConcern(row: ConcernRow): ResidentConcern {
   return {
     reference: row.reference, ownerId: row.owner_id, name: row.name, contact: row.contact,
-    category: row.category, message: row.message, status: row.status, archived: row.archived, submittedAt: row.submitted_at,
+    category: row.category, message: row.message, status: row.status, archived: row.archived, submittedAt: row.submitted_at, version: row.version, resolutionNote: row.resolution_note,
   };
 }
 function toShift(row: ShiftRow): WalkInShift {
-  return { id: row.id, staffName: row.staff_name, role: row.role, days: row.days, hours: row.hours, active: row.active };
+  return { revision:row.revision,id: row.id, staffName: row.staff_name, role: row.role, days: row.days, hours: row.hours, active: row.active };
 }
 function reportError(action: string, error: { message: string }): never {
   console.error(`Supabase ${action} failed:`, error);
@@ -135,7 +167,7 @@ export async function sendResidentNotification(notification: ResidentNotificatio
   if (!error) return;
   const context = error.context;
   if (context instanceof Response) {
-    const payload = await context.clone().json() as { error?: unknown };
+    const payload = await context.clone().json().catch(()=>({error:null})) as { error?: unknown };
     if (typeof payload.error === "string") {
       throw new Error(payload.error);
     }
@@ -152,28 +184,19 @@ async function getCurrentUserId(): Promise<string> {
 }
 
 export async function getPublicPosts(): Promise<PublicPost[]> {
-  const { data, error } = await requireSupabase().from("public_posts").select("*").order("published_at", { ascending: false });
-  if (error) return reportError("loading announcements", error);
-  return (data as PublicPostRow[]).map(toPost);
+  return (await allPortalRows<PublicPostRow>("posts")).map(toPost);
 }
 
-export async function savePublicPosts(posts: PublicPost[]): Promise<void> {
-  if (!posts.length) return;
-  const rows = posts.map((post) => ({
-    id: post.id, title: post.title, content: post.content, type: post.type,
-    published_at: post.publishedAt, archived: post.archived, image_path: post.imagePath ?? null, image_alt: post.imageAlt ?? "",
-  }));
-  const { error } = await requireSupabase().from("public_posts").upsert(rows, { onConflict: "id" });
-  if (error) reportError("saving announcements", error);
-}
+export async function savePublicPosts(posts:PublicPost[]){for(const post of posts)await savePublicPost(post);}
 
 export async function savePublicPost(post: PublicPost): Promise<void> {
-  await savePublicPosts([post]);
+ const fields={title:post.title,content:post.content,type:post.type,published_at:post.publishedAt,archived:post.archived,image_path:post.imagePath??null,image_alt:post.imageAlt??''};
+ const result=post.revision?await requireSupabase().from('public_posts').update(fields).eq('id',post.id).eq('revision',post.revision).select('revision,updated_at').single():await requireSupabase().from('public_posts').insert({id:post.id,...fields}).select('revision,updated_at').single();
+ checkRevision(result.error,result.data);post.revision=result.data!.revision;post.updatedAt=result.data!.updated_at;
 }
 
-export async function setPublicPostArchived(id: string, archived: boolean): Promise<void> {
-  const { error } = await requireSupabase().from("public_posts").update({ archived }).eq("id", id);
-  if (error) throw new Error(error.message);
+export async function setPublicPostArchived(id: string, archived: boolean,revision:number=1): Promise<void> {
+  const {data,error}=await requireSupabase().from("public_posts").update({archived}).eq("id",id).eq("revision",revision).select("revision").single();checkRevision(error,data);
 }
 
 export function subscribePublicPosts(onUpdate: () => void): () => void {
@@ -181,45 +204,49 @@ export function subscribePublicPosts(onUpdate: () => void): () => void {
 }
 
 export async function getAppointmentRequests(ownerId?: string): Promise<AppointmentRequest[]> {
-  let query = requireSupabase().from("appointment_requests").select("*").order("submitted_at", { ascending: false });
-  if (ownerId) query = query.eq("owner_id", ownerId);
-  const { data, error } = await query;
-  if (error) return reportError("loading appointment requests", error);
-  return (data as AppointmentRow[]).map(toRequest);
+  return (await allPortalRows<AppointmentRow>("requests",{owner:ownerId})).map(toRequest);
 }
 
-export async function addAppointmentRequest(request: AppointmentRequest): Promise<void> {
-  const { error } = await requireSupabase().from("appointment_requests").insert({
+export async function getAppointmentRequest(reference: string): Promise<AppointmentRequest> {
+  const { data, error } = await requireSupabase().from("appointment_requests").select("*").eq("reference", reference).single();
+  if (error) throw new Error(error.message);
+  return toRequest(data as AppointmentRow);
+}
+
+export async function addAppointmentRequest(request: AppointmentRequest,attachments:{id:string;requirement_id:string;storage_path:string}[]=[]): Promise<void> {
+  const { error } = await requireSupabase().rpc('submit_document_request',{p_request:{
     reference: request.reference, owner_id: request.ownerId, full_name: request.fullName,
     address: request.address, voter_id: request.voterId, request_type: request.requestType,
-    school_id_image_path: request.schoolIdImagePath,
+    school_id_image_path: request.schoolIdImagePath,id_type:request.idType,id_number:request.idNumber,id_review_acknowledged:request.idReviewAcknowledged===true,
     purpose: request.purpose, appointment_date: request.date, time_slot: request.timeSlot,
     delivery_format: request.deliveryFormat, status: "PENDING", archived: false,
-  });
+  },p_attachments:attachments});
   if (error) reportError("submitting the appointment request", error);
 }
 
 export async function uploadSchoolIdImage(file: File, ownerId: string, reference: string): Promise<string> {
+  await validateAnnouncementImage(file);
   const extensionByType: Record<string, string> = {
     "image/jpeg": "jpg",
     "image/png": "png",
     "image/webp": "webp",
   };
   const extension = extensionByType[file.type];
-  if (!extension) throw new Error("Upload a JPG, PNG, or WebP image of the school ID.");
-  if (file.size > 5 * 1024 * 1024) throw new Error("The school ID image must be 5 MB or smaller.");
+  if (!extension) throw new Error("Upload a JPG, PNG, or WebP image of your valid ID.");
+  if (!file.size || file.size > 5 * 1024 * 1024) throw new Error("Choose a nonempty ID image no larger than 5 MB.");
 
-  const path = `${ownerId}/${reference}/school-id.${extension}`;
+  // Preserve the existing private bucket/column for older bookings; each attempt gets its own immutable file.
+  const path = `${ownerId}/${reference}/${crypto.randomUUID()}/school-id.${extension}`;
   const { error } = await requireSupabase().storage
     .from("resident-school-ids")
     .upload(path, file, { contentType: file.type, upsert: false });
-  if (error) reportError("uploading the school ID image", error);
+  if (error) reportError("uploading your ID image", error);
   return path;
 }
 
 export async function removeSchoolIdImage(path: string): Promise<void> {
   const { error } = await requireSupabase().storage.from("resident-school-ids").remove([path]);
-  if (error) reportError("removing an unsubmitted school ID image", error);
+  if (error) reportError("removing an unsubmitted ID image", error);
 }
 
 export async function getSchoolIdImageUrl(path: string): Promise<string> {
@@ -227,7 +254,7 @@ export async function getSchoolIdImageUrl(path: string): Promise<string> {
     .storage
     .from("resident-school-ids")
     .createSignedUrl(path, 5 * 60);
-  if (error) return reportError("opening a private school ID image", error);
+  if (error) return reportError("opening a private ID image", error);
   return data.signedUrl;
 }
 
@@ -249,9 +276,25 @@ export async function getCertificateTemplateFile(fileName: string): Promise<Arra
   return data.arrayBuffer();
 }
 
-export async function updateAppointmentStatus(reference: string, status: RequestStatus, rejectionReason?: string): Promise<void> {
-  const { error } = await requireSupabase().from("appointment_requests").update({ status, rejection_reason: status === "REJECTED" ? rejectionReason?.trim() : null }).eq("reference", reference);
-  if (error) reportError("updating the appointment status", error);
+export type AppointmentAction = "approve" | "reject" | "complete" | "cancel" | "no_show" | "reschedule" | "collect";
+
+export async function manageAppointment(request: AppointmentRequest, action: AppointmentAction, details: {
+  reason?: string; date?: string; timeSlot?: string; recipient?: string;
+} = {}): Promise<AppointmentRequest> {
+  const { data, error } = await requireSupabase().rpc("manage_appointment", {
+    p_reference: request.reference, p_action: action, p_expected_version: request.version,
+    p_reason: details.reason?.trim() ?? null, p_date: details.date ?? null,
+    p_time_slot: details.timeSlot ?? null, p_recipient: details.recipient?.trim() ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return toRequest(data as AppointmentRow);
+}
+
+export async function updateAppointmentStatus(request: AppointmentRequest, status: RequestStatus, reason?: string): Promise<AppointmentRequest> {
+  const actions: Partial<Record<RequestStatus, AppointmentAction>> = { APPROVED: "approve", REJECTED: "reject", COMPLETED: "complete", CANCELLED: "cancel", NO_SHOW: "no_show" };
+  const action = actions[status];
+  if (!action) throw new Error("This status is managed automatically.");
+  return manageAppointment(request, action, { reason });
 }
 
 export async function setAppointmentArchived(reference: string, archived: boolean): Promise<void> {
@@ -264,43 +307,29 @@ export function subscribeAppointmentRequests(onUpdate: () => void): () => void {
 }
 
 export async function getTransactionMessages(reference: string): Promise<TransactionMessage[]> {
-  const { data, error } = await requireSupabase()
-    .from("transaction_messages").select("*").eq("request_reference", reference).order("sent_at");
-  if (error) return reportError("loading request messages", error);
-  return (data as MessageRow[]).map((row) => ({
+  const rows:MessageRow[]=[];
+  for(let page=0;;page++){const {data,error}=await requireSupabase().from('transaction_messages').select('*').eq('request_reference',reference).order('sent_at').order('id').range(page*500,page*500+499);if(error)return reportError('loading request messages',error);rows.push(...data);if(data.length<500)break;}
+  const attachments=await readChatAttachments('request',reference);
+  return rows.map((row) => ({
     id: row.id, authorId: row.author_id, author: row.author_name,
-    role: row.author_role, body: row.body, sentAt: row.sent_at,
+    role: row.author_role, body: row.body, sentAt: row.sent_at,attachments:attachments.filter(file=>file.request_message_id===row.id),
   }));
 }
 
-export async function addTransactionMessage(reference: string, message: TransactionMessage): Promise<void> {
-  const authorId = await getCurrentUserId();
-  const { error } = await requireSupabase().from("transaction_messages").insert({
-    request_reference: reference, author_id: authorId, author_name: message.author,
-    author_role: message.role, body: message.body,
-  });
-  if (error) reportError("sending the request message", error);
+export async function addTransactionMessage(reference: string, message: TransactionMessage,files:File[]=[]): Promise<TransactionMessage> {
+  const row=await sendChatMessage<MessageRow>('request',reference,message.id,message.body,files);
+  return{id:row.id,authorId:row.author_id,author:row.author_name,role:row.author_role,body:row.body,sentAt:row.sent_at,attachments:row.attachments};
 }
 
 export function subscribeTransactionMessages(onUpdate: () => void): () => void {
-  return subscribeTable("transaction_messages", onUpdate);
+  const messages=subscribeTable('transaction_messages',onUpdate),attachments=subscribeTable('chat_attachments',onUpdate);return()=>{messages();attachments();};
 }
 
 export async function getResidentConcerns(ownerId?: string): Promise<ResidentConcern[]> {
-  let query = requireSupabase().from("resident_concerns").select("*").order("submitted_at", { ascending: false });
-  if (ownerId) query = query.eq("owner_id", ownerId);
-  const { data, error } = await query;
-  if (error) return reportError("loading resident concerns", error);
-  return (data as ConcernRow[]).map(toConcern);
+  return (await allPortalRows<ConcernRow>("concerns",{owner:ownerId})).map(toConcern);
 }
 
-export async function addResidentConcern(concern: ResidentConcern): Promise<void> {
-  const { error } = await requireSupabase().from("resident_concerns").insert({
-    reference: concern.reference, owner_id: concern.ownerId, name: concern.name,
-    contact: concern.contact, category: concern.category, message: concern.message, archived: false,
-  });
-  if (error) reportError("submitting resident feedback", error);
-}
+export async function addResidentConcern(concern:ResidentConcern):Promise<ResidentConcern>{const{data,error}=await requireSupabase().rpc('submit_resident_concern',{p_id:concern.reference.replace(/^CON-/,''),p_contact:concern.contact,p_category:concern.category,p_message:concern.message});if(error)throw new Error(error.message);return toConcern(data);}
 
 export async function updateResidentConcern(reference: string, status: ResidentConcern["status"]): Promise<void> {
   const { error } = await requireSupabase().from("resident_concerns").update({ status }).eq("reference", reference);
@@ -317,13 +346,9 @@ export function subscribeResidentConcerns(onUpdate: () => void): () => void {
 }
 
 export async function getResidentDirectory(): Promise<DirectoryResident[]> {
-  const { data, error } = await requireSupabase()
-    .from("resident_profiles")
-    .select("id, first_name, last_name, email, contact_number, address, created_at")
-    .eq("role", "resident")
-    .order("created_at", { ascending: false });
-  if (error) return reportError("loading the resident directory", error);
+  const data=await allPortalRows<any>("residents");
   return data.map((row) => ({
+    revision:row.revision,
     id: row.id,
     firstName: row.first_name,
     lastName: row.last_name,
@@ -336,22 +361,24 @@ export async function getResidentDirectory(): Promise<DirectoryResident[]> {
 }
 
 export async function updateResidentDirectoryEntry(input: {
+  revision?:number;
   id: string;
   firstName: string;
   lastName: string;
   contactNumber: string;
   address: string;
 }): Promise<void> {
-  const { error } = await requireSupabase()
+  const fields = validateProfileFields(input);
+  const { data,error } = await requireSupabase()
     .from("resident_profiles")
     .update({
-      first_name: input.firstName.trim(),
-      last_name: input.lastName.trim(),
-      contact_number: input.contactNumber.trim(),
-      address: input.address.trim(),
+      first_name: fields.firstName,
+      last_name: fields.lastName,
+      contact_number: fields.contactNumber,
+      address: fields.address,
     })
-    .eq("id", input.id);
-  if (error) reportError("updating resident details", error);
+    .eq("id", input.id).eq("revision",input.revision??1).select("id").single();
+  checkRevision(error,data);
 }
 
 export function subscribeResidentDirectory(onUpdate: () => void): () => void {
@@ -365,28 +392,17 @@ export async function getWalkInShifts(): Promise<WalkInShift[]> {
 }
 
 export async function saveWalkInShifts(shifts: WalkInShift[]): Promise<void> {
-  if (!shifts.length) return;
-  const rows = shifts.map((shift) => ({
-    id: shift.id, staff_name: shift.staffName, role: shift.role,
-    days: shift.days, hours: shift.hours, active: shift.active, updated_at: new Date().toISOString(),
-  }));
-  const { error } = await requireSupabase().from("walk_in_shifts").upsert(rows, { onConflict: "id" });
-  if (error) reportError("saving the walk-in schedule", error);
+  for(const shift of shifts){const{data,error}=await requireSupabase().rpc("save_walk_in_shift",{p_id:shift.id,p_staff:shift.staffName,p_role:shift.role,p_days:shift.days,p_hours:shift.hours,p_active:shift.active,p_revision:shift.revision??null});if(error)throw new Error(error.message);shift.revision=data.revision;}
+  return;
 }
 
 export function subscribeWalkInShifts(onUpdate: () => void): () => void {
   return subscribeTable("walk_in_shifts", onUpdate);
 }
 
-function subscribeTable(table: string, onUpdate: () => void): () => void {
-  if (!supabase) return () => undefined;
-  const channel = supabase
-    .channel(`${table}-${crypto.randomUUID()}`)
-    .on("postgres_changes", { event: "*", schema: "public", table }, onUpdate)
-    .subscribe((status, error) => {
-      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-        console.error(`Supabase Realtime subscription failed for ${table}.`, error);
-      }
-    });
-  return () => { void supabase?.removeChannel(channel); };
-}
+function subscribeTable(table:string,onUpdate:()=>void){return reliableSubscription([table],onUpdate);}
+export async function getAppointmentRequestPage(options:ListOptions={}){const page=await portalList<AppointmentRow>('requests',options);return{...page,rows:page.rows.map(toRequest)};}
+export async function getConcernPage(options:ListOptions={}){const page=await portalList<ConcernRow>('concerns',options);return{...page,rows:page.rows.map(toConcern)};}
+export async function getResidentPage(options:ListOptions={}){const page=await portalList<any>('residents',options);return{...page,rows:page.rows.map(row=>({id:row.id,firstName:row.first_name,lastName:row.last_name,name:row.first_name+' '+row.last_name,email:row.email??'',contactNumber:row.contact_number,address:row.address,createdAt:row.created_at,revision:row.revision})) as DirectoryResident[]};}
+export async function getPostPage(options:ListOptions={}){const page=await portalList<PublicPostRow>('posts',options);return{...page,rows:page.rows.map(toPost)};}
+export async function getRequestSummary(){const{data,error}=await requireSupabase().rpc('request_summary');if(error)throw new Error(error.message);return data as {total:number;pending:number;approved:number;served:number;statuses:Record<string,number>;months:Record<string,number>;types:{name:string;count:number}[]};}

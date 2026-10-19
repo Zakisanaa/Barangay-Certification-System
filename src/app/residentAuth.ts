@@ -1,6 +1,9 @@
+import {checkRevision} from './reliableData';
 import { requireSupabase } from "./supabase";
+import { validateProfileFields } from "./profileValidation";
 
 export interface ResidentAccount {
+  revision?:number;
   id: string;
   firstName: string;
   lastName: string;
@@ -10,6 +13,8 @@ export interface ResidentAccount {
   address: string;
   role: "resident" | "staff";
   createdAt: string;
+  superadmin?: boolean;
+  permissions?: import('./adminData').StaffPermission[];
 }
 
 export type ResidentRegistrationResult =
@@ -17,6 +22,7 @@ export type ResidentRegistrationResult =
   | { status: "signed-in"; account: ResidentAccount };
 
 function toResidentAccount(profile: {
+  revision?:number;
   id: string;
   first_name: string;
   last_name: string;
@@ -27,7 +33,7 @@ function toResidentAccount(profile: {
   created_at: string;
 }): ResidentAccount {
   return {
-    id: profile.id,
+    revision:profile.revision,id: profile.id,
     firstName: profile.first_name,
     lastName: profile.last_name,
     name: `${profile.first_name} ${profile.last_name}`.trim(),
@@ -39,37 +45,46 @@ function toResidentAccount(profile: {
   };
 }
 
-export async function getResidentProfile(userId: string): Promise<ResidentAccount> {
+export async function getResidentProfile(userId: string, includeStaffAccess = true): Promise<ResidentAccount> {
   const client = requireSupabase();
   const { data, error } = await client
     .from("resident_profiles")
-    .select("id, first_name, last_name, email, contact_number, address, role, created_at")
+    .select("id, first_name, last_name, email, contact_number, address, role, created_at, revision")
     .eq("id", userId)
     .single();
   if (error) throw error;
-  return toResidentAccount(data);
+  const account=toResidentAccount(data);
+  if(account.role==='staff'&&includeStaffAccess){
+    const access=await client.from('staff_access').select('active,superadmin,permissions').eq('user_id',account.id).maybeSingle();
+    if(access.error)throw new Error('Could not verify staff access. Please try again.');
+    if(!access.data?.active)throw new Error('This staff account is inactive. Contact the administrator.');
+    return {...account,superadmin:access.data.superadmin,permissions:access.data.permissions};
+  }
+  return account;
 }
 
 export async function updateResidentProfile(input: {
+  revision?:number;
   id: string;
   firstName: string;
   lastName: string;
   contactNumber: string;
   address: string;
 }): Promise<ResidentAccount> {
+  const fields = validateProfileFields(input);
   const { data, error } = await requireSupabase()
     .from("resident_profiles")
     .update({
-      first_name: input.firstName.trim(),
-      last_name: input.lastName.trim(),
-      contact_number: input.contactNumber.trim(),
-      address: input.address.trim(),
+      first_name: fields.firstName,
+      last_name: fields.lastName,
+      contact_number: fields.contactNumber,
+      address: fields.address,
     })
-    .eq("id", input.id)
-    .select("id, first_name, last_name, email, contact_number, address, role, created_at")
+    .eq("id", input.id).eq("revision",input.revision??1)
+    .select("id, first_name, last_name, email, contact_number, address, role, created_at, revision")
     .single();
-  if (error) throw error;
-  return toResidentAccount(data);
+  checkRevision(error,data);
+  return toResidentAccount(data!);
 }
 
 export async function registerResidentAccount(input: {
@@ -80,6 +95,7 @@ export async function registerResidentAccount(input: {
   address: string;
   password: string;
 }): Promise<ResidentRegistrationResult> {
+  const fields = validateProfileFields(input);
   const email = input.email.trim().toLowerCase();
   const { data, error } = await requireSupabase().auth.signUp({
     email,
@@ -87,10 +103,10 @@ export async function registerResidentAccount(input: {
     options: {
       emailRedirectTo: window.location.origin,
       data: {
-        first_name: input.firstName.trim(),
-        last_name: input.lastName.trim(),
-        contact_number: input.contactNumber.trim(),
-        address: input.address.trim(),
+        first_name: fields.firstName,
+        last_name: fields.lastName,
+        contact_number: fields.contactNumber,
+        address: fields.address,
       },
     },
   });

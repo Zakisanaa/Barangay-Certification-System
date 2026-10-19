@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 type NotificationInput =
+  | {type:"appointment_pdf_retry";reference:string;deliveryId:string}
   | { type: "appointment_status"; reference: string; status: string }
   | { type: "appointment_pdf"; reference: string; templateName: string; pdfBase64: string; deliveryId: string }
   | { type: "concern_status"; reference: string; status: string }
@@ -63,7 +64,6 @@ Deno.serve(async (request) => {
     .select("role, first_name, last_name")
     .eq("id", authData.user.id)
     .single();
-  if (staffError || staff?.role !== "staff") return jsonResponse({ error: "Only authorized staff can send resident notifications." }, 403);
 
   let input: NotificationInput;
   try {
@@ -75,6 +75,31 @@ Deno.serve(async (request) => {
       typeof input.reference !== "string" || input.reference.trim().length === 0) {
     return jsonResponse({ error: "A valid record reference is required." }, 400);
   }
+  const permission = ['appointment_pdf','appointment_pdf_retry'].includes(input.type) ? 'certificates' : input.type === 'concern_status' ? 'concerns' : 'requests';
+  const access = await authClient.rpc('has_staff_permission', { p_permission: permission });
+  if (staffError || staff?.role !== 'staff' || access.error || access.data !== true) {
+    return jsonResponse({ error: 'You do not have permission to send this notification.' }, 403);
+  }
+
+  const recovering=input.type==='appointment_pdf_retry';
+  if(input.type==='appointment_pdf_retry'){
+    if(typeof input.deliveryId!=='string'||!/^[0-9a-f-]{36}$/i.test(input.deliveryId))return jsonResponse({error:'Choose a saved delivery attempt.'},400);
+    const saved=await adminClient.from('certificate_deliveries').select('*').eq('id',input.deliveryId).eq('request_reference',input.reference).maybeSingle();
+    if(saved.error||!saved.data)return jsonResponse({error:'Saved certificate delivery not found.'},404);
+    if(saved.data.provider_id){if(['bounced','failed'].includes(saved.data.status))return jsonResponse({error:'The previous email was rejected. Review delivery history before starting a new attempt.'},409);return jsonResponse({success:true,deliveryId:saved.data.id});}
+    if(Date.now()-Date.parse(saved.data.created_at)>23*60*60*1000)return jsonResponse({error:'This attempt requires provider-log review before a new send. The safe retry period has expired.'},409);
+    if(!saved.data.email_payload)return jsonResponse({error:'This older delivery has no saved email payload. Review the provider logs before starting another attempt.'},409);
+    const file=await adminClient.storage.from('completed-certificates').download(saved.data.storage_path);
+    if(file.error||!file.data)return jsonResponse({error:'The PDF was not saved. Reselect the original PDF to resume this delivery ID.'},409);
+    const bytes=new Uint8Array(await file.data.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+    input={type:'appointment_pdf',reference:input.reference,deliveryId:saved.data.id,templateName:saved.data.template_name,pdfBase64:btoa(binary)};
+  }
+
+  // Legacy clients may still request ordinary emails. The database already queued them atomically;
+  // acknowledging here prevents a second send outside the durable outbox.
+  if (["appointment_status", "concern_status", "staff_reply"].includes(input.type)) {
+    return jsonResponse({ success: true, queued: true });
+  }
 
   let ownerId: string;
   let subject: string;
@@ -84,6 +109,7 @@ Deno.serve(async (request) => {
   let attachments: { filename: string; content: string }[] | undefined;
   let savedCertificatePath: string | undefined;
   let deliveryId: string | undefined;
+  let frozenPayload:Record<string,unknown>|null=null;
 
   if (input.type === "appointment_status") {
     const validStatuses = ["PENDING", "APPROVED", "COMPLETED", "REJECTED"];
@@ -105,29 +131,9 @@ Deno.serve(async (request) => {
       text += ` Reason: ${data.rejection_reason}`;
     }
   } else if (input.type === "appointment_pdf") {
-    const templateRequestTypes: Record<string, string[]> = {
-      "ATTESTATION.docx": ["Attestation"],
-      "BARANGAY BUSINESS CLEARANCE.docx": ["Business Permit Clearance"],
-      "BARANGAY CLEARANCE.docx": ["Barangay Clearance"],
-      "FIRST TIME JOB SEEKER.docx": ["First-Time Job Seeker Certificate"],
-      "INDIGENCY (FINANCIAL ASSISTANCE).docx": ["Certificate of Indigency", "Certificate of Indigency (Financial Assistance)"],
-      "INDIGENCY (IMSWD & HOSPITAL).docx": ["Certificate of Indigency", "Certificate of Indigency (IMSWD & Hospital)"],
-      "INDIGENCY (INDIGENT ONLY).docx": ["Certificate of Indigency", "Certificate of Indigency (Indigent Only)"],
-      "LAGASIT POOREST TO THE POOR.docx": ["Lagasit Poorest to the Poor"],
-      "LATE REGISTRATION.docx": ["Late Registration"],
-      "LIVESTOCK.docx": ["Livestock"],
-      "NON-RESIDENCY.docx": ["Certificate of Non-Residency"],
-      "PWD CERTIFICATE.docx": ["PWD Certificate"],
-      "RESIDENCY.docx": ["Certificate of Residency"],
-      "TENANCY.docx": ["Tenancy"],
-    };
     if (typeof input.templateName !== "string" || typeof input.pdfBase64 !== "string" ||
         !/^[A-Za-z0-9+/]+={0,2}$/.test(input.pdfBase64) ||
         input.pdfBase64.length > 7 * 1024 * 1024) {
-      return jsonResponse({ error: "Choose a valid certificate template." }, 400);
-    }
-    const validRequestTypes = templateRequestTypes[input.templateName];
-    if (!validRequestTypes) {
       return jsonResponse({ error: "Choose a valid certificate template." }, 400);
     }
     const { data, error } = await adminClient
@@ -142,7 +148,9 @@ Deno.serve(async (request) => {
     if (data.status !== "APPROVED" && data.status !== "COMPLETED") {
       return jsonResponse({ error: "Approve the request before sending its certificate." }, 409);
     }
-    if (!validRequestTypes.includes(data.request_type)) {
+    const template = await adminClient.from('certificate_templates').select('label,active')
+      .eq('request_type', data.request_type).eq('storage_path', input.templateName).maybeSingle();
+    if (template.error || !template.data) {
       return jsonResponse({ error: "The selected template does not match this request type." }, 400);
     }
     let pdfBytes: Uint8Array;
@@ -163,10 +171,12 @@ Deno.serve(async (request) => {
     if (recipientError || !recipient?.email) return jsonResponse({ error: "Could not find the resident email address." }, 404);
     const pdfHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(pdfBytes))), byte => byte.toString(16).padStart(2, "0")).join("");
     const { data: previous, error: previousError } = await adminClient.from("certificate_deliveries").select("*").eq("id", deliveryId).maybeSingle();
+    if(!previous&&!template.data.active)return jsonResponse({error:'Choose the currently published template for a new certificate.'},409);
     if (previousError) return jsonResponse({ error: "Could not load certificate delivery history." }, 500);
-    if (previous && (previous.pdf_hash !== pdfHash || previous.request_reference !== input.reference || previous.template_name !== input.templateName || previous.sent_by !== authData.user.id)) {
+    if (previous && (previous.pdf_hash !== pdfHash || previous.request_reference !== input.reference || previous.template_name !== input.templateName)) {
       return jsonResponse({ error: "This delivery attempt belongs to a different certificate. Choose the PDF again." }, 409);
     }
+    frozenPayload=previous?.email_payload??null;
     if (previous?.provider_id) {
       if (previous.status === "bounced" || previous.status === "failed") return jsonResponse({ error: "The previous email could not be delivered. Review the resident email and choose the PDF again for a new send." }, 409);
       return jsonResponse({ success: true, savedCertificatePath: previous.storage_path, deliveryId });
@@ -174,7 +184,7 @@ Deno.serve(async (request) => {
     if (previous && Date.now() - Date.parse(previous.created_at) > 23 * 60 * 60 * 1000) {
       return jsonResponse({ error: "This delivery attempt has expired. Check request history and choose the PDF again before resending." }, 409);
     }
-    const templateLabel = input.templateName.replace(/\.docx$/i, "");
+    const templateLabel = template.data?.label??"Certificate";
     ownerId = data.owner_id;
     const safeReference = input.reference.replace(/[^A-Za-z0-9-]+/g, "-");
     savedCertificatePath = `${ownerId}/${safeReference}/${deliveryId}.pdf`;
@@ -265,6 +275,22 @@ Deno.serve(async (request) => {
     : appSiteUrl
       ? `<p><a href="${escapeHtml(appSiteUrl)}" style="color:#123323">Sign in to the Barangay portal to view the update.</a></p>`
       : "<p>Sign in to the Barangay portal to view the update.</p>";
+  const proposedPayload={
+      from: senderEmail,
+      to: [resident.email],
+      subject,
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#24362a"><h2 style="color:#123323">${heading}</h2><p>${greeting}</p>${details}${appLink}<p>Barangay Lagasit Portal</p></div>`,
+      text: `${heading}\n\n${text}${attachments ? "" : "\n\nSign in to the Barangay portal to view the update."}`,
+      ...(attachments ? { attachments } : {}),
+      ...(deliveryId ? { tags: [{ name: "delivery_id", value: deliveryId }] } : {}),
+    };
+  if(deliveryId&&!frozenPayload){
+    const stored=await adminClient.from('certificate_deliveries').update({email_payload:proposedPayload}).eq('id',deliveryId).is('email_payload',null);
+    if(stored.error)return jsonResponse({error:'Could not preserve this delivery attempt. Retry the same PDF.'},500);
+    const current=await adminClient.from('certificate_deliveries').select('email_payload').eq('id',deliveryId).single();
+    if(current.error||!current.data?.email_payload)return jsonResponse({error:'Could not confirm the saved email. Retry the same PDF.'},500);
+    frozenPayload=current.data.email_payload;
+  }
   let emailResponse: Response;
   try {
     emailResponse = await fetch("https://api.resend.com/emails", {
@@ -275,15 +301,7 @@ Deno.serve(async (request) => {
       "Content-Type": "application/json",
       ...(deliveryId ? { "Idempotency-Key": `certificate/${deliveryId}` } : {}),
     },
-    body: JSON.stringify({
-      from: senderEmail,
-      to: [resident.email],
-      subject,
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#24362a"><h2 style="color:#123323">${heading}</h2><p>${greeting}</p>${details}${appLink}<p>Barangay Lagasit Portal</p></div>`,
-      text: `${heading}\n\n${text}${attachments ? "" : "\n\nSign in to the Barangay portal to view the update."}`,
-      ...(attachments ? { attachments } : {}),
-      ...(deliveryId ? { tags: [{ name: "delivery_id", value: deliveryId }] } : {}),
-    }),
+    body: JSON.stringify(frozenPayload??proposedPayload),
   });
   } catch {
     if (deliveryId) await adminClient.from("certificate_deliveries").update({ error_message: "Could not confirm the email provider response. Retry this same PDF to recover the sending status.", updated_at: new Date().toISOString() }).eq("id", deliveryId);

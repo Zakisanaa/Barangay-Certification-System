@@ -4,41 +4,64 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
+import {runAdminChecks} from './admin-ui-checks.mjs';
+import {runChatChecks} from './chat-ui-checks.mjs';
+import {runPriorityTwoChecks} from './priority-two-ui-checks.mjs';
+import {runPriorityThreeChecks} from './priority-three-ui-checks.mjs';
+import {runUsabilityChecks} from './usability-ui-checks.mjs';
+import {runScrollingChecks} from './scrolling-ui-checks.mjs';
+import {runResidentFeeChecks} from './resident-fees-ui-checks.mjs';
+import {runApprovedServiceChecks} from './approved-services-ui-checks.mjs';
+import {runConnectedWorkflowChecks} from './connected-workflows-ui-checks.mjs';
 
 const root = process.cwd();
 const output = path.join(root, 'test-results');
 await fs.mkdir(output, {recursive: true});
 const mocks = {};
 for (const [module, fixture] of [['portalData.ts','mock-portal.js'], ['serviceData.ts','mock-services.js'], ['residentAuth.ts','mock-auth.js'], ['chatbotData.ts','mock-chatbot.js']]) mocks[module] = await fs.readFile(new URL(`fixtures/${fixture}`, import.meta.url), 'utf8');
-mocks['supabase.ts'] = `export const isSupabaseConfigured = true; export const supabase = { auth: { onAuthStateChange(callback) { window.__review.authCallback = callback; return {data: {authListener: {subscription: {unsubscribe() {}}}, subscription: {unsubscribe() {}}}}; } }, storage:{from(){return{getPublicUrl(path){return{data:{publicUrl:window.__review.imageUrls[path]??''}}},async upload(path,file){window.__review.imageUrls[path]=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(file);});return{error:null};},async remove(paths){window.__review.removedImages.push(...paths);for(const path of paths)delete window.__review.imageUrls[path];return{error:null};}}}} }; export function requireSupabase() { return supabase; }`;
+mocks['supabase.ts'] = await fs.readFile(new URL('fixtures/mock-supabase.js', import.meta.url), 'utf8');
 const server = await createServer({ configFile: false, root, plugins: [
   {name: 'isolated-ui-services', enforce: 'pre', load(id) { const normalized = id.replaceAll('\\','/'); for (const [module, code] of Object.entries(mocks)) if (normalized.endsWith(`/src/app/${module}`)) return code; }}, react(), tailwind(),
-], server: {host: '127.0.0.1', port: 5188, strictPort: true}});
+], server: {host: '127.0.0.1', port: 0,watch:{ignored:['**/test-results/**','**/dist/**']}}});
 await server.listen();
+const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
 const browser = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const chrome = spawn(browser, ['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--remote-debugging-port=9230',`--user-data-dir=${path.join(output,'chrome-profile')}`,'about:blank'], {windowsHide: true, stdio: 'ignore'});
+const profile = await fs.mkdtemp(path.join(output,'chrome-profile-'));
+const chrome = spawn(browser, ['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--disable-background-networking','--disable-component-update','--disable-sync','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'], {windowsHide: true, stdio: 'ignore'});
+let launchError;
+chrome.on('error',error=>{launchError=error;});
 let socket;
+const suiteDeadline=setTimeout(()=>{console.error('Browser suite exceeded its three-minute deadline.');socket?.close();chrome.kill();void server.close();},180000);
 try {
   let tab;
-  for (let i=0;i<100;i++) { try { tab=(await(await fetch('http://127.0.0.1:9230/json')).json()).find(item=>item.type==='page'); if(tab)break; }catch{} await new Promise(resolve=>setTimeout(resolve,100)); }
+  for (let i=0;i<100;i++) {
+    if(launchError)throw launchError;
+    if(chrome.exitCode!==null)throw new Error(`Chrome exited with code ${chrome.exitCode}.`);
+    try { const port=(await fs.readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0];tab=(await(await fetch(`http://127.0.0.1:${port}/json`,{signal:AbortSignal.timeout(2000)})).json()).find(item=>item.type==='page');if(tab)break;}catch{}
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
   if(!tab)throw new Error('Browser unavailable. Set CHROME_PATH to your Chromium executable.');
   socket=new WebSocket(tab.webSocketDebuggerUrl);
-  await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});
+  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Browser connection timed out.')),10000);socket.addEventListener('open',()=>{clearTimeout(timer);resolve();},{once:true});socket.addEventListener('error',error=>{clearTimeout(timer);reject(error);},{once:true});});
   let nextId=0;const pending=new Map();const exceptions=[];
-  socket.addEventListener('message',event=>{const message=JSON.parse(event.data);if(message.method==='Runtime.exceptionThrown')exceptions.push(message.params.exceptionDetails);if(!message.id)return;const handler=pending.get(message.id);pending.delete(message.id);message.error?handler.reject(new Error(JSON.stringify(message.error))):handler.resolve(message.result);});
-  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++nextId;pending.set(id,{resolve,reject});socket.send(JSON.stringify({id,method,params}));});
+  socket.addEventListener('message',event=>{const message=JSON.parse(event.data);if(message.method==='Runtime.exceptionThrown')exceptions.push(message.params.exceptionDetails);if(!message.id)return;const handler=pending.get(message.id);if(!handler)return;pending.delete(message.id);clearTimeout(handler.timer);message.error?handler.reject(new Error(JSON.stringify(message.error))):handler.resolve(message.result);});
+  socket.addEventListener('close',()=>{for(const handler of pending.values()){clearTimeout(handler.timer);handler.reject(new Error('Browser connection closed.'));}pending.clear();});
+  const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++nextId;const timer=setTimeout(()=>{pending.delete(id);reject(new Error(`Browser command timed out: ${method}`));},15000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>{const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw new Error(JSON.stringify(result.exceptionDetails));return result.result.value;};
-  const waitFor=async expression=>{for(let i=0;i<150;i++){if(await evaluate(`!!(${expression})`))return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error('Timed out: '+expression);};
-  const check=async(label,expression)=>{if(!await evaluate(expression))throw new Error('FAILED: '+label);console.log('PASS: '+label);};
+  const waitFor=async expression=>{for(let i=0;i<150;i++){if(await evaluate(`!!(${expression})`))return;await new Promise(resolve=>setTimeout(resolve,100));}console.error(await evaluate('document.body.innerText'));if(exceptions.length)console.error(JSON.stringify(exceptions));throw new Error('Timed out: '+expression);};
+  let checkCount=0;
+  const check=async(label,expression)=>{if(!await evaluate(expression)){console.error(await evaluate(`Array.from(document.querySelectorAll('[role="dialog"], [role="dialog"] *')).filter(e=>e.scrollWidth>e.clientWidth+1).map(e=>({tag:e.tagName,class:e.className,width:e.clientWidth,scroll:e.scrollWidth,text:e.textContent.slice(0,100)})).slice(0,15)`));throw new Error('FAILED: '+label);}checkCount++;console.log('PASS: '+label);};
   const click=async label=>{await waitFor(`Array.from(document.querySelectorAll('button')).some(button=>button.textContent.replace('›','').trim()===${JSON.stringify(label)})`);await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.replace('›','').trim()===${JSON.stringify(label)}).click()`);};
   const input=async(selector,value)=>evaluate(`(()=>{const element=document.querySelector(${JSON.stringify(selector)});if(!element)throw new Error('Missing input: '+${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:element instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(element,${JSON.stringify(value)});element.dispatchEvent(new Event(element instanceof HTMLSelectElement?'change':'input',{bubbles:true}));})()`);
   const navigate=async label=>{if(await evaluate(`getComputedStyle(document.querySelector('aside')).transform!=='none' && document.querySelector('aside').getBoundingClientRect().left<0`))await evaluate(`document.querySelector('[aria-label="Open menu"]').click()`);await click(label);};
   const resize=(width,height=844)=>call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:width<768});
   const screenshot=async name=>{const result=await call('Page.captureScreenshot',{format:'png'});await fs.writeFile(path.join(output,`${name}.png`),Buffer.from(result.data,'base64'));};
-  const fits=label=>check(label,`document.querySelector('main').scrollWidth<=document.querySelector('main').clientWidth`);
+  const fits=async label=>{if(!await evaluate(`document.querySelector('main').scrollWidth<=document.querySelector('main').clientWidth`))console.error(await evaluate(`Array.from(document.querySelectorAll('main,main *')).filter(e=>e.scrollWidth>e.clientWidth+1).slice(0,12).map(e=>({tag:e.tagName,width:e.clientWidth,scroll:e.scrollWidth,class:e.className,text:e.textContent.slice(0,60)}))`));await check(label,`document.querySelector('main').scrollWidth<=document.querySelector('main').clientWidth`);};
   await call('Runtime.enable');await call('Page.enable');await resize(320);
-  await call('Page.navigate',{url:'http://127.0.0.1:5188/tests/fixtures/ui.html'});
+  await call('Page.navigate',{url:`${origin}/tests/fixtures/ui.html`});
   await waitFor(`document.body.textContent.includes('Admin dashboard') && document.querySelector('table')`);
+  await evaluate('window.confirm=()=>true');
+  if(!['scrolling','portal-fixes','approved-services','connected'].includes(process.env.UI_CHECK_GROUP)){
   await fits('Admin dashboard fits a 320 px phone');
   await check('Staff table becomes cards on mobile',`getComputedStyle(document.querySelector('table')).display==='block' && getComputedStyle(document.querySelector('thead')).display==='none'`);
   await input('input[type="search"]','No matching person');await waitFor(`document.body.textContent.includes('No requests to show')`);await click('Clear filters');await click('VIEW');
@@ -59,8 +82,8 @@ try {
   await waitFor(`document.querySelector('img[alt="Announcement photo preview"]')`);await input('input[maxlength="240"]','Community health day poster');
   await fits('Announcement image editor fits a 320 px phone');await evaluate(`window.__review.failAnnouncementSave=true`);await click('Publish announcement');await waitFor(`window.__review.removedImages.length===1`);await check('A failed announcement save retains the draft and cleans up its upload',`document.querySelector('input[maxlength="120"]').value==='Community health day' && document.querySelector('img[alt="Community health day poster"]') && window.__review.posts.length===0`);await evaluate(`window.__review.failAnnouncementSave=false`);await click('Publish announcement');await waitFor(`window.__review.posts.length===1`);
   await check('Announcement saves its uploaded photo and description',`window.__review.posts[0].imagePath.endsWith('.png') && window.__review.posts[0].imageAlt==='Community health day poster'`);
-  await evaluate(`window.resetReview('resident','/')`);await waitFor(`document.body.textContent.includes('Public Service Portal')`);await check('Resident home shows the announcement photo',`!!document.querySelector('img[alt="Community health day poster"]')`);
-  await evaluate(`window.resetReview('none','/')`);await waitFor(`document.body.textContent.includes('Barangay Contact Information')`);await check('Public landing shows the announcement photo',`!!document.querySelector('img[alt="Community health day poster"]')`);
+  await evaluate(`window.resetReview('resident','/')`);await waitFor(`document.body.textContent.includes('Public Service Portal')`);await waitFor(`document.querySelector('img[alt="Community health day poster"]')`);await check('Resident home shows the announcement photo',`!!document.querySelector('img[alt="Community health day poster"]')`);
+  await evaluate(`window.resetReview('none','/')`);await waitFor(`document.body.textContent.includes('Barangay Contact Information')`);await waitFor(`document.querySelector('img[alt="Community health day poster"]')`);await check('Public landing shows the announcement photo',`!!document.querySelector('img[alt="Community health day poster"]')`);
   await evaluate(`window.resetReview('staff','/staff')`);await waitFor(`document.body.textContent.includes('Admin dashboard')`);await navigate('Landing page news');await waitFor(`document.body.textContent.includes('Community health day')`);
   await click('Edit');await click('Save changes');await waitFor(`document.body.textContent.includes('Add an announcement')`);await check('Editing text preserves the existing photo',`!!window.__review.posts[0].imagePath && window.__review.removedImages.length===1`);
   await click('Edit');await click('Remove photo');await click('Save changes');await waitFor(`!window.__review.posts[0].imagePath`);await check('Removing a photo cleans up the unused upload',`window.__review.removedImages.length===2`);
@@ -77,11 +100,25 @@ try {
   await navigate('Book');await waitFor(`document.body.textContent.includes('Personal Information')`);
   await evaluate(`(()=>{const select=document.querySelector('select');select.value="Voter's ID";select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   await evaluate(`(()=>{const element=Array.from(document.querySelectorAll('input')).find(input=>input.placeholder?.includes('number shown'));if(!element)throw new Error('ID number input missing');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,'123456');element.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  const nextDisabled=`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.trim()==='NEXT').disabled`;
+  await check('Voter ID bookings cannot continue without an ID attachment',nextDisabled);
+  await evaluate(`(()=>{const transfer=new DataTransfer();transfer.items.add(new File(['not an image'],'invalid-id.png',{type:'image/png'}));const field=document.querySelector('[aria-label="Attach a photo of your ID"]');field.files=transfer.files;field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await waitFor(`document.querySelector('[aria-label="Attach a photo of your ID"]').value===''`);
+  await check('Invalid ID image contents are rejected before booking',nextDisabled);
+  const attachId=()=>evaluate(`new Promise(resolve=>{const canvas=document.createElement('canvas');canvas.width=300;canvas.height=180;canvas.getContext('2d').fillRect(0,0,300,180);canvas.toBlob(blob=>{const transfer=new DataTransfer();transfer.items.add(new File([blob],'test-id.png',{type:'image/png'}));const field=document.querySelector('[aria-label="Attach a photo of your ID"]');field.files=transfer.files;field.dispatchEvent(new Event('change',{bubbles:true}));resolve(true);},'image/png');})`);
+  await attachId();await waitFor(`document.body.textContent.includes('Selected: test-id.png')`);
+  await check('ID review confirmation is required after choosing a valid image',nextDisabled);
+  await evaluate(`document.querySelector('[aria-label="Required ID attachment"] input[type="checkbox"]').click()`);await waitFor(`!(${nextDisabled})`);
+  await input('select','School ID');await check('Changing ID type clears the previous attachment and confirmation',`document.querySelector('[aria-label="Attach a photo of your ID"]').files.length===0&&!document.querySelector('[aria-label="Required ID attachment"] input[type="checkbox"]').checked&&${nextDisabled}`);
+  await input('select',"Voter's ID");await input('input[placeholder="Enter the number shown on your ID"]','123456');await attachId();await waitFor(`document.body.textContent.includes('Selected: test-id.png')`);await evaluate(`document.querySelector('[aria-label="Required ID attachment"] input[type="checkbox"]').click()`);
+  await resize(320);await fits('Required ID upload fits a 320 px phone');await evaluate(`document.querySelector('[aria-label="Required ID attachment"]').scrollIntoView({block:'start'})`);await screenshot('booking-required-id-mobile');await resize(390);
   await click('NEXT');await input('select','Good Moral Certificate');await check('Unsupported forms offer hardcopy only',`!Array.from(document.querySelectorAll('button')).some(button=>button.textContent.trim()==='Softcopy')`);
   await input('select','Barangay Clearance');await input('textarea','Employment');await click('Softcopy');await click('NEXT');
   await evaluate(`(()=>{const day=new Date(window.__review.day+'T00:00:00');const label=day.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});document.querySelector('button[aria-label="'+label+'"]').click();})()`);
   await waitFor(`document.body.textContent.includes('Fully booked')`);await check('Full appointment slots are disabled',`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('8:00 AM - 9:00 AM')).disabled`);
-  await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('9:00 AM - 10:00 AM')).click()`);await fits('Booking calendar and time slots fit mobile');await screenshot('booking-mobile');await click('NEXT');await fits('Booking summary fits mobile');await click('SUBMIT REQUEST');await waitFor(`document.body.textContent.includes('Your request is awaiting review')`);await check('Booking creates a Pending request with a unique reference',`window.__review.requests.at(-1).status==='PENDING' && /^BRG-[0-9]{4}-[A-F0-9]{12}$/.test(window.__review.requests.at(-1).reference)`);
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(button=>button.textContent.includes('9:00 AM - 10:00 AM')).click()`);await fits('Booking calendar and time slots fit mobile');await screenshot('booking-mobile');await click('NEXT');await fits('Booking summary fits mobile');
+  await evaluate(`window.__review.failBookingSave=true`);await click('SUBMIT REQUEST');await waitFor(`window.__review.removedIdUploads?.length===1`);await check('A failed booking removes only its unused upload and preserves the ID for retry',`document.body.textContent.includes('test-id.png')&&!document.body.textContent.includes('Your request is awaiting review')&&window.__review.idUploads.length===1`);await evaluate(`window.__review.failBookingSave=false`);
+  await click('SUBMIT REQUEST');await waitFor(`document.body.textContent.includes('Your request is awaiting review')`);await check('Booking creates a Pending request with a unique reference',`window.__review.requests.at(-1).status==='PENDING' && /^BRG-[0-9]{4}-[A-F0-9]{12}$/.test(window.__review.requests.at(-1).reference)`);await check('A successful booking retains its own ID attachment after retry',`window.__review.requests.at(-1).schoolIdImagePath===window.__review.idUploads.at(-1).path&&window.__review.idUploads.length===2&&window.__review.removedIdUploads.length===1`);
   await click('Go to my dashboard');await waitFor(`document.body.textContent.includes('Your resident dashboard')`);await fits('Resident dashboard fits mobile');
   await evaluate(`window.__review.deliveries = [{id:'delivery-test',request_reference:window.__review.requests.at(-1).reference,sender_name:'Test Staff',recipient_email:'resident@example.test',template_name:'BARANGAY CLEARANCE.docx',storage_path:'mock-certificate.pdf',status:'delivered',error_message:null,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}]`);
   await click('View status');await waitFor(`document.body.textContent.includes('Delivered to mail server')`);await click('Download completed PDF');await check('Resident can download their archived PDF',`window.__review.pdfDownloads===1`);
@@ -100,6 +137,51 @@ try {
   await evaluate(`window.resetReview('staff','/staff')`);await waitFor(`document.body.textContent.includes('Admin dashboard')`);await evaluate(`window.__review.authCallback('PASSWORD_RECOVERY')`);await waitFor(`document.body.textContent.includes('Set a new password')`);await check('Recovery events replace the restored dashboard',`!document.querySelector('aside')`);await click('Back to sign in');await waitFor(`document.body.textContent.includes('Staff sign in')`);
   await evaluate(`window.resetReview('staff','/?recovery=1&staff=1')`);await waitFor(`document.body.textContent.includes('Set a new password')`);await input('input[autocomplete="new-password"]','new-password-123');await evaluate(`(()=>{const element=document.querySelectorAll('input[autocomplete="new-password"]')[1];Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,'new-password-123');element.dispatchEvent(new Event('input',{bubbles:true}));})()`);await click('Save new password');await waitFor(`window.__review.recoveredPassword==='new-password-123'`);
   await check('Recovery returns staff to sign in',`window.location.pathname==='/staff' && document.body.textContent.includes('Staff sign in')`);
+  await evaluate(`(()=>{
+    const review=window.__review;const original=review.requests.at(-1);
+    review.requests=[{...original,reference:'BRG-2026-P1-STAFF',status:'APPROVED',deliveryFormat:'Both',version:1,hardcopyCollectedAt:null,hardcopyCollectedBy:null,hardcopyCollectedName:null,statusReason:null,timeSlot:'9:00 AM - 10:00 AM'}];
+    review.deliveries=[];review.events=[];review.emailUpdates=[];
+    review.config.slots.push({label:'10:00 AM - 11:00 AM',start_time:'10:00',capacity:10,active:true});
+    window.resetReview('staff','/staff');
+  })()`);
+  await waitFor(`document.querySelector('table')`);await click('VIEW');await waitFor(`document.querySelector('[aria-label="Appointment actions"]')`);
+  await click('Reschedule appointment');await waitFor(`document.querySelector('[aria-label="Appointment actions"] select option[value="10:00 AM - 11:00 AM"]')`);
+  await input('[aria-label="Appointment actions"] select','10:00 AM - 11:00 AM');await input('[aria-label="Appointment actions"] textarea','Resident requested another time');await click('Confirm change');
+  await waitFor(`window.__review.requests[0].timeSlot==='10:00 AM - 11:00 AM'`);
+  await check('Staff rescheduling updates the selected request and version',`window.__review.requests[0].version===2 && document.querySelector('[role="dialog"]').textContent.includes('10:00 AM - 11:00 AM')`);
+  await click('Record hardcopy collection');await input('[aria-label="Appointment actions"] input','Juan Dela Cruz');await click('Confirm change');await waitFor(`!!window.__review.requests[0].hardcopyCollectedAt`);
+  await check('Hardcopy collection records and displays the recipient',`document.querySelector('[role="dialog"]').textContent.includes('Hardcopy collected by Juan Dela Cruz')`);
+  await evaluate(`document.querySelector('[aria-label="Close request details"]').click();window.__review.appointmentActionError={action:'complete',message:'Save the completed certificate PDF before completing this request.'}`);
+  await click('Complete');await waitFor(`document.body.textContent.includes('Save the completed certificate PDF before completing this request.')`);
+  await check('Completion errors remain visible and leave the request approved',`window.__review.requests[0].status==='APPROVED'`);
+  await evaluate(`window.__review.appointmentActionError=null`);await click('VIEW');await waitFor(`document.querySelector('input[aria-label="Upload completed certificate PDF"]')`);
+  await input('[aria-label="Certificate delivery"] select','BARANGAY CLEARANCE.docx');
+  await evaluate(`(()=>{const transfer=new DataTransfer();transfer.items.add(new File(['%PDF-1.4',String.fromCharCode(10),'Test certificate PDF'],'certificate.pdf',{type:'application/pdf'}));const field=document.querySelector('input[aria-label="Upload completed certificate PDF"]');field.files=transfer.files;field.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await waitFor(`document.body.textContent.includes('certificate.pdf')`);await click('Save & email PDF to resident');await waitFor(`window.__review.deliveries.length===1`);
+  await check('The PDF send includes a stable delivery attempt ID',`window.__review.notifications.at(-1).type==='appointment_pdf' && /^[0-9a-f-]{36}$/i.test(window.__review.notifications.at(-1).deliveryId)`);
+  await evaluate(`document.querySelector('[aria-label="Close request details"]').click()`);await click('Complete');await waitFor(`window.__review.requests[0].status==='COMPLETED'`);
+  await evaluate(`(()=>{const review=window.__review;review.requests=[{...review.requests[0],reference:'BRG-2026-P1-CANCEL',status:'PENDING',deliveryFormat:'Hardcopy',version:1,hardcopyCollectedAt:null,hardcopyCollectedBy:null,hardcopyCollectedName:null,statusReason:null}];review.deliveries=[];window.resetReview('resident','/');})()`);
+  await waitFor(`document.body.textContent.includes('Public Service Portal')`);await navigate('Dashboard');await click('View status');await click('Cancel appointment');await input('[aria-label="Appointment actions"] textarea','Unable to attend');await click('Confirm change');
+  await waitFor(`window.__review.requests[0].status==='CANCELLED'`);await check('Resident cancellation refreshes the detail status and reason',`document.body.textContent.includes('Unable to attend') && !document.querySelector('[aria-label="Appointment actions"]')`);
+  await evaluate(`(()=>{const review=window.__review;review.requests[0].status='EXPIRED';review.emailUpdates=[{id:'failed-update',kind:'appointment_update',subject:'Appointment update',recipient_email:'resident@example.test',status:'failed',attempts:6,last_error:'Provider unavailable',created_at:new Date().toISOString(),updated_at:new Date().toISOString()}];window.resetReview('staff','/staff');})()`);
+  await waitFor(`document.querySelector('table')`);await check('Expired requests render safely in the staff list',`document.querySelector('table').textContent.includes('EXPIRED')`);await click('VIEW');await waitFor(`document.body.textContent.includes('Retry email update')`);await click('Retry email update');await waitFor(`window.__review.emailUpdates[0].status==='pending'`);
+  await check('Staff can retry a failed queued notification',`window.__review.emailUpdates[0].last_error===null`);await evaluate(`document.querySelector('[aria-label="Close request details"]').click();window.__review.failLogout=true`);
+  await evaluate(`document.querySelector('[aria-label="Log out"]').click()`);await waitFor(`document.querySelector('[role="alert"]')?.textContent.includes('Sign-out could not be confirmed')`);
+  await check('A failed sign-out preserves the signed-in screen and shows a retryable error',`!!document.querySelector('aside') && window.__review.account?.role==='staff'`);
+  await evaluate(`window.__review.failLogout=false;window.__review.pauseLogout=true;document.querySelector('[aria-label="Log out"]').click()`);await waitFor(`!!window.__review.finishLogout`);
+  await check('Sign-out waits for confirmation and blocks repeated clicks',`document.querySelector('[aria-label="Log out"]').disabled && !!document.querySelector('aside') && window.__review.account?.role==='staff'`);
+  await evaluate(`window.__review.finishLogout()`);await waitFor(`document.body.textContent.includes('Barangay Contact Information')`);await check('Confirmed sign-out clears the account and opens the public site',`window.__review.account===null && !document.querySelector('aside')`);
+  await runAdminChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot});
+  await runChatChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot});
+  await runPriorityTwoChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot});
+  await runPriorityThreeChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,call,resize});
+  await runUsabilityChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,resize});
+  }
+  if(!['approved-services','connected'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
+  if(!['scrolling','approved-services','connected'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['scrolling','portal-fixes','connected'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='connected')await runConnectedWorkflowChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(exceptions.length)throw new Error('Browser exceptions: '+JSON.stringify(exceptions));
-  console.log('All UI checks passed with isolated mock services. No real emails or database writes were made.');
-} finally {socket?.close();chrome.kill();await server.close();}
+  await fs.writeFile(path.join(output,'ui-summary.json'),JSON.stringify({checks:checkCount,passed:true,isolated:true,realEmailsSent:0,productionWrites:0},null,2));
+  console.log(`All ${checkCount} UI checks passed with isolated mock services. No real emails or database writes were made.`);
+} finally {clearTimeout(suiteDeadline);socket?.close();chrome.kill();await server.close();}

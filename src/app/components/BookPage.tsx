@@ -1,4 +1,8 @@
-import { useEffect, useState } from "react";
+import {formatServiceFee} from '../serviceFee';
+import {useUnsavedChanges} from '../useUnsavedChanges';
+import {validateBookingFields} from '../bookingValidation';
+import {manilaTime} from '../manilaTime';
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Copy, Download } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -10,9 +14,12 @@ import {
   uploadSchoolIdImage,
 } from "../portalData";
 import { ResidentAccount } from "../residentAuth";
-import { getCertificateTemplates } from "../certificateTemplates";
+import { useCertificateTemplates } from "../certificateTemplates";
 import { getServiceConfiguration, getSlotAvailability, subscribeServiceData } from "../serviceData";
 import type { ServiceConfiguration, SlotAvailability } from "../serviceData";
+import { removeUnusedPrivateFile,todayInManila,uploadPrivateFile,validatePrivateFile } from '../adminData';
+import { requireSupabase } from '../supabase';
+import { validateAnnouncementImage } from '../announcementImages';
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval, getDay,
   isSameDay, isWeekend, isBefore, isAfter, startOfDay, addDays, addMonths, subMonths,
@@ -33,9 +40,6 @@ const validIdTypes = [
   "Other government-issued ID",
 ];
 
-const schoolIdType = "School ID";
-const maxSchoolIdImageBytes = 5 * 1024 * 1024;
-const schoolIdImageTypes = ["image/jpeg", "image/png", "image/webp"];
 
 type Step = 1 | 2 | 3 | 4;
 type Page = "home" | "chat" | "book" | "dashboard" | "admin" | "schedule" | "concerns";
@@ -88,10 +92,10 @@ function StepIndicator({ current }: { current: Step }) {
                 }}
               >
                 <div
-                  className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-[9px] font-bold mt-0.5"
+                  className="w-5 h-5 flex-shrink-0 flex items-center justify-center text-xs font-bold mt-0.5"
                   style={{
                     border: active ? "1.5px solid #fff" : "1.5px solid #c4c0b9",
-                    color: active ? "#fff" : done ? "#0f0e0c" : "#9e9b96",
+                    color: active ? "#fff" : done ? "#0f0e0c" : "#61645f",
                     background: done ? "#0f0e0c" : "transparent",
                   }}
                 >
@@ -100,13 +104,13 @@ function StepIndicator({ current }: { current: Step }) {
                 <div>
                   <div
                     className="text-xs font-bold tracking-wide leading-none"
-                    style={{ color: active ? "#fff" : done ? "#0f0e0c" : "#9e9b96" }}
+                    style={{ color: active ? "#fff" : done ? "#0f0e0c" : "#61645f" }}
                   >
                     {s.id}
                   </div>
                   <div
                     className="text-xs mt-1 leading-tight"
-                    style={{ color: active ? "rgba(255,255,255,0.65)" : "#9e9b96" }}
+                    style={{ color: active ? "rgba(255,255,255,0.65)" : "#61645f" }}
                   >
                     {s.label}
                   </div>
@@ -125,7 +129,7 @@ function StepIndicator({ current }: { current: Step }) {
   );
 }
 
-function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected: Date | null; onSelect: (d: Date) => void; closures: string[]; daysAhead: number }) {
+function CalendarPicker({ selected, onSelect, closures, daysAhead,weekdays }: { selected: Date | null; onSelect: (d: Date) => void; closures: string[]; daysAhead: number;weekdays?:{iso_day:number;open:boolean}[] }) {
   const [viewDate, setViewDate] = useState(new Date());
   const today = startOfDay(new Date(new Date().toLocaleDateString("en-US", { timeZone: "Asia/Manila" })));
   const monthStart = startOfMonth(viewDate);
@@ -150,10 +154,10 @@ function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected:
           <ChevronLeft className="w-4 h-4" />
         </button>
         <div className="flex items-center gap-4">
-          <span className="text-[11px] font-bold tracking-[0.12em]">
+          <span className="text-xs font-bold tracking-[0.12em]">
             {format(viewDate, "MMMM yyyy").toUpperCase()}
           </span>
-          <span className="text-[9px] font-bold tracking-[0.1em]" style={{ color: "#9e9b96" }}>
+          <span className="text-xs font-bold tracking-[0.1em]" style={{ color: "#61645f" }}>
             CALENDAR_GRID
           </span>
         </div>
@@ -172,8 +176,8 @@ function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected:
         {dayNames.map(d => (
           <div
             key={d}
-            className="py-2.5 text-center text-[9px] font-bold tracking-[0.1em]"
-            style={{ color: "#9e9b96" }}
+            className="py-2.5 text-center text-xs font-bold tracking-[0.1em]"
+            style={{ color: "#61645f" }}
           >
             {d}
           </div>
@@ -194,7 +198,8 @@ function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected:
           />
         ))}
         {days.map((day, i) => {
-          const unavail = isWeekend(day) || isBefore(startOfDay(day), today) || isAfter(day, addDays(today, daysAhead)) || closures.includes(format(day, "yyyy-MM-dd"));
+          const closedWeekday=weekdays?.length?!weekdays.some(item=>item.iso_day===(day.getDay()||7)&&item.open):isWeekend(day);
+          const unavail = closedWeekday || isBefore(startOfDay(day), today) || isAfter(day, addDays(today, daysAhead)) || closures.includes(format(day, "yyyy-MM-dd"));
           const isSel = selected && isSameDay(day, selected);
           const col = (startPad + i) % 7;
           return (
@@ -205,7 +210,7 @@ function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected:
               aria-pressed={!!isSel}
               disabled={unavail}
               onClick={() => onSelect(day)}
-              className="py-4 text-center text-[11px] font-bold transition-colors relative"
+              className="py-4 text-center text-xs font-bold transition-colors relative"
               style={{
                 borderRight: col < 6 ? "1px solid #e8e5e0" : "none",
                 borderBottom: "1px solid #e8e5e0",
@@ -234,7 +239,7 @@ function CalendarPicker({ selected, onSelect, closures, daysAhead }: { selected:
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1.5">
             <div className="w-3 h-3" style={{ background: l.bg, border: `1px solid ${l.bd}` }} />
-            <span className="text-[9px] font-bold" style={{ color: "#6e6b65" }}>{l.label}</span>
+            <span className="text-xs font-bold" style={{ color: "#6e6b65" }}>{l.label}</span>
           </div>
         ))}
       </div>
@@ -246,21 +251,29 @@ const inputCls = "w-full min-h-12 px-4 py-3 text-sm outline-none transition-all 
 const inputStyle = { fontFamily: "'Space Mono', monospace", border: "1.5px solid #c4c0b9" };
 const labelCls = "block text-xs font-bold tracking-wide mb-2";
 
-export default function BookPage({ setActivePage, resident }: { setActivePage: (page: Page) => void; resident: ResidentAccount }) {
+export default function BookPage({ setActivePage, resident,initialService }: { setActivePage: (page: Page) => void; resident: ResidentAccount;initialService?:string }) {
   const [step, setStep] = useState<Step>(1);
   const [submitted, setSubmitted] = useState(false);
   const [submittedReference, setSubmittedReference] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [schoolIdImage, setSchoolIdImage] = useState<File | null>(null);
-  const [schoolIdConsent, setSchoolIdConsent] = useState(false);
+  const [idImage, setIdImage] = useState<File | null>(null);
+  const [idConsent, setIdConsent] = useState(false);
+  const [checkingIdImage, setCheckingIdImage] = useState(false);
+  const idSelectionVersion = useRef(0);
   const [configuration, setConfiguration] = useState<ServiceConfiguration | null>(null);
+  const [supportingFiles,setSupportingFiles]=useState<Record<string,File>>({});
+  const [supportingErrors,setSupportingErrors]=useState<Record<string,string>>({});
+  const [checkingSupporting,setCheckingSupporting]=useState<Record<string,boolean>>({});
+  const supportingSelections=useRef<Record<string,number>>({});
+  const supportingServiceVersion=useRef(0);
+  const submissionReference=useRef(`BRG-${todayInManila().slice(0,4)}-${crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase()}`);
   const [settingsError, setSettingsError] = useState("");
   const [reloadSettings, setReloadSettings] = useState(0);
   const [availableSlots, setAvailableSlots] = useState<SlotAvailability[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotError, setSlotError] = useState("");
   const [form, setForm] = useState<FormData>({
-    fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: "", otherRequestType: "", purpose: "", date: null,
+    fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: initialService??"", otherRequestType: "", purpose: "", date: null,
     timeSlot: "", deliveryFormat: "",
   });
 
@@ -271,7 +284,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
       cause => { if (active) setSettingsError(cause instanceof Error ? cause.message : "Could not load booking information."); },
     );
     refresh();
-    const unsubscribe = subscribeServiceData(["service_catalog", "office_settings", "appointment_slots", "office_closures"], refresh);
+    const unsubscribe = subscribeServiceData(["service_catalog", "office_settings", "appointment_slots", "office_closures",'service_requirements','certificate_templates','office_weekdays'], refresh);
     return () => { active = false; unsubscribe(); };
   }, [reloadSettings]);
 
@@ -298,42 +311,63 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
   }, [form.date, step, reloadSettings]);
 
   const selectedService = configuration?.services.find(service => service.request_type === form.requestType && service.active);
-  const supportsSoftcopy = !!selectedService?.softcopy_available && !!getCertificateTemplates(form.requestType).length;
+  const supportingRequirements=configuration?.requirements?.filter(item=>item.request_type===form.requestType&&item.active)??[];
+  const templates=useCertificateTemplates(form.requestType);
+  const supportsSoftcopy = !!selectedService?.softcopy_available && !!templates.length;
   useEffect(() => {
     if (!supportsSoftcopy) setForm(previous => previous.deliveryFormat && previous.deliveryFormat !== "Hardcopy" ? { ...previous, deliveryFormat: "Hardcopy" } : previous);
   }, [supportsSoftcopy]);
 
+  const [idPreview,setIdPreview]=useState(''),[validationError,setValidationError]=useState<{field:string;message:string;step:1|2}|null>(null);
+  useEffect(()=>{if(!idImage){setIdPreview('');return;}const url=URL.createObjectURL(idImage);setIdPreview(url);return()=>URL.revokeObjectURL(url);},[idImage]);
+  useUnsavedChanges(!submitted&&!!(form.validIdType||form.validIdNumber||form.requestType||form.purpose||form.date||idImage||Object.keys(supportingFiles).length));
   const set = (k: keyof FormData, v: string | Date | null) =>
-    setForm(prev => ({ ...prev, [k]: v }));
+    {setValidationError(null);setForm(prev => ({ ...prev, [k]: v }));};
+  useEffect(()=>()=>{supportingServiceVersion.current++;},[]);
+  const selectSupportingFile=async(id:string,input:HTMLInputElement)=>{
+    const file=input.files?.[0],version=supportingServiceVersion.current,selection=(supportingSelections.current[id]??0)+1;
+    supportingSelections.current[id]=selection;
+    const current=()=>version===supportingServiceVersion.current&&selection===supportingSelections.current[id];
+    setSupportingFiles(previous=>{const next={...previous};delete next[id];return next;});
+    setSupportingErrors(previous=>({...previous,[id]:''}));setCheckingSupporting(previous=>({...previous,[id]:!!file}));
+    if(!file)return;
+    try{await validatePrivateFile(file);if(current())setSupportingFiles(previous=>({...previous,[id]:file}));}
+    catch(cause){if(current()){input.value='';setSupportingErrors(previous=>({...previous,[id]:cause instanceof Error?cause.message:'Choose a valid supporting document.'}));}}
+    finally{if(current())setCheckingSupporting(previous=>({...previous,[id]:false}));}
+  };
 
   const canNext = () => {
     if (step === 1) return !!(
       form.fullName
       && form.address
       && form.validIdType
-      && form.validIdNumber.trim()
-      && (form.validIdType !== schoolIdType || (schoolIdImage && schoolIdConsent))
+      && form.validIdNumber.trim() && form.validIdNumber.trim().length<=120 && form.fullName.trim().length<=200 && form.address.trim().length<=500
+      && idImage && idConsent && !checkingIdImage
     );
-    if (step === 2) return !!(selectedService && (form.requestType !== "Other barangay document" || form.otherRequestType.trim()) && form.purpose.trim() && form.deliveryFormat);
+    if (step === 2) return !!(selectedService && (form.requestType !== "Other barangay document" || form.otherRequestType.trim()) && form.purpose.trim() && form.purpose.trim().length<=2000 && form.otherRequestType.trim().length<=200 && form.deliveryFormat && supportingRequirements.every(item=>!checkingSupporting[item.id]&&!supportingErrors[item.id]&&(!item.required||supportingFiles[item.id])));
     if (step === 3) return form.date !== null && !!form.timeSlot && !loadingSlots && !slotError && availableSlots.some(slot => slot.label === form.timeSlot && slot.available);
     return true;
   };
 
   const submitRequest = async () => {
-    if (!form.date || !form.deliveryFormat || submitting || !selectedService) return;
-    if (form.validIdType === schoolIdType && (!schoolIdImage || !schoolIdConsent)) {
-      toast.error("Upload a picture of the School ID and confirm its use for this request.");
+    if(submitting)return;
+    if(!selectedService){setSettingsError('The selected service is no longer available. Choose an available document.');setStep(2);return;}
+    if(supportingRequirements.some(item=>checkingSupporting[item.id]||supportingErrors[item.id]||(item.required&&!supportingFiles[item.id]))){toast.error('Upload the required supporting documents before submitting.');setStep(2);return;}
+    const problem=validateBookingFields(form);if(problem){setValidationError(problem);setStep(problem.step);return;}
+    if(!form.date||!form.deliveryFormat){toast.error('Select a document format, appointment date, and time.');setStep(3);return;}
+    if (!idImage || !idConsent || checkingIdImage) {
+      toast.error("Attach a clear photo of your valid ID and confirm staff review before booking.");
       setStep(1);
       return;
     }
     setSubmitting(true);
 
     const request: AppointmentRequest = {
-      reference: `BRG-${new Date().getFullYear()}-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`,
+      reference: submissionReference.current,
       ownerId: resident.id,
       fullName: form.fullName.trim(),
       address: form.address.trim(),
-      voterId: `${form.validIdType}: ${form.validIdNumber.trim()}`,
+      voterId: `${form.validIdType}: ${form.validIdNumber.trim()}`,idType:form.validIdType,idNumber:form.validIdNumber.trim(),idReviewAcknowledged:idConsent,
       schoolIdImagePath: null,
       requestType: form.requestType === "Other barangay document" ? form.otherRequestType.trim() : form.requestType,
       purpose: form.purpose.trim(),
@@ -343,24 +377,32 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
       status: "PENDING",
       archived: false,
       submittedAt: new Date().toISOString(),
+      version: 1, statusReason: null, rescheduleReason: null,
+      hardcopyCollectedAt: null, hardcopyCollectedBy: null, hardcopyCollectedName: null,
     };
 
     let uploadedSchoolIdPath: string | null = null;
+    const supportingUploads:{id:string;requirement_id:string;storage_path:string}[]=[];
     try {
-      if (form.validIdType === schoolIdType && schoolIdImage) {
-        uploadedSchoolIdPath = await uploadSchoolIdImage(schoolIdImage, resident.id, request.reference);
-        request.schoolIdImagePath = uploadedSchoolIdPath;
-      }
-      await addAppointmentRequest(request);
+      const previous=await requireSupabase().from('appointment_requests').select('reference').eq('reference',request.reference).maybeSingle();
+      if(previous.error)throw new Error('Could not confirm the request reference. Try again when connected.');
+      if(previous.data){setSubmittedReference(request.reference);setSubmitted(true);return;}
+      uploadedSchoolIdPath = await uploadSchoolIdImage(idImage, resident.id, request.reference);
+      request.schoolIdImagePath = uploadedSchoolIdPath;
+      for(const requirement of supportingRequirements){const file=supportingFiles[requirement.id];if(!file){if(requirement.required)throw new Error(`Upload ${requirement.title} before submitting.`);continue;}const path=await uploadPrivateFile('request-attachments',`${resident.id}/${request.reference}/${requirement.id}`,file);supportingUploads.push({id:crypto.randomUUID(),requirement_id:requirement.id,storage_path:path});}
+      await addAppointmentRequest(request,supportingUploads);
       setSubmittedReference(request.reference);
       setSubmitted(true);
       toast.success("Request submitted for barangay review.");
     } catch (error) {
+      const recovered=await Promise.resolve(requireSupabase().from('appointment_requests').select('reference').eq('reference',request.reference).maybeSingle()).catch(()=>({data:null}));
+      if(recovered.data){setSubmittedReference(request.reference);setSubmitted(true);toast.success('Your request was saved.');return;}
+      for(const upload of supportingUploads)await removeUnusedPrivateFile('request-attachments',upload.storage_path);
       if (uploadedSchoolIdPath) {
         try {
           await removeSchoolIdImage(uploadedSchoolIdPath);
         } catch (cleanupError) {
-          console.error("Unable to remove the unsubmitted school ID image.", cleanupError);
+          console.error("Unable to remove the unsubmitted ID image.", cleanupError);
         }
       }
       console.error("Unable to submit the appointment request.", error);
@@ -399,7 +441,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
       `Document: ${request.requestType}`,
       `Appointment: ${format(new Date(`${request.date}T00:00:00`), "MMMM d, yyyy")} · ${request.timeSlot}`,
       `Status: ${request.status}`,
-      `Submitted: ${format(new Date(request.submittedAt), "MMMM d, yyyy h:mm a")}`,
+      `Submitted: ${manilaTime(request.submittedAt)} (Asia/Manila)`,
       "",
       "Sign in to the resident portal to retrieve this request from your account.",
       "This receipt is a reference backup, not an official Barangay confirmation.",
@@ -427,7 +469,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
           >
             ✓
           </div>
-          <div className="text-[9px] font-bold tracking-[0.2em] mb-3" style={{ color: "#9e9b96" }}>
+          <div className="text-xs font-bold tracking-[0.2em] mb-3" style={{ color: "#61645f" }}>
             REQUEST RECEIVED
           </div>
           <div className="text-xl font-bold tracking-tight mb-3">Your request is awaiting review</div>
@@ -475,8 +517,8 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                 setSubmittedReference("");
                 setStep(1);
                 setForm({ fullName: resident.name, address: resident.address, validIdType: "", validIdNumber: "", requestType: "", otherRequestType: "", purpose: "", date: null, timeSlot: "", deliveryFormat: "" });
-                setSchoolIdImage(null);
-                setSchoolIdConsent(false);
+                idSelectionVersion.current++;setIdImage(null);setIdConsent(false);setCheckingIdImage(false);
+                setSupportingFiles({});submissionReference.current=`BRG-${todayInManila().slice(0,4)}-${crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase()}`;
               }}
               className="min-h-12 px-8 py-3 text-sm font-bold text-white transition-opacity hover:opacity-80"
               style={{ background: "#0f0e0c" }}
@@ -499,7 +541,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
             Book an appointment for barangay certification services
           </p>
         </div>
-        <div className="text-[10px] font-bold tracking-[0.2em] text-[#6a766e]">
+        <div className="text-xs font-bold tracking-[0.2em] text-[#6a766e]">
           STEP {step} / 4
         </div>
       </div>
@@ -514,13 +556,15 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
             className="px-4 py-4 sm:px-7"
             style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
           >
-            <span className="text-[10px] font-bold tracking-[0.15em]">
+            <span className="text-xs font-bold tracking-[0.15em]">
               STEP {step}: {steps[step - 1].label.toUpperCase()}
             </span>
           </div>
 
           <div className="p-4 sm:p-7">
+            {configuration&&form.requestType&&!selectedService&&<div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"><p>The selected service is no longer available. Choose an available document.</p><button type="button" className="mt-2 min-h-11 rounded border px-3 font-semibold" onClick={()=>setStep(2)}>Choose another document</button></div>}
             {settingsError && <div role="alert" className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"><p>{settingsError}</p><button type="button" onClick={() => setReloadSettings(value => value + 1)} className="mt-2 min-h-11 rounded border border-red-200 px-3">Retry booking information</button></div>}
+            <p id="booking-validation" role={validationError?"alert":undefined} className={validationError?"rounded border border-red-200 p-3 text-sm text-red-900":"sr-only"}>{validationError?.message??"Complete required fields. ID number: up to 120 characters. Purpose: up to 2000 characters."}</p>
             {step === 1 && (
               <div className="space-y-5 max-w-lg">
                 <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
@@ -531,11 +575,11 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   { label: "COMPLETE ADDRESS", key: "address", placeholder: "e.g. 123 Rizal St., Barangay Lagasit" },
                 ].map(f => (
                   <div key={f.key}>
-                    <label className={labelCls}>
+                    <label htmlFor={'booking-'+f.key} className={labelCls}>
                       {f.label}{" "}
                       <span style={{ color: "#b91c1c" }}>*</span>
                     </label>
-                    <input
+                    <input id={'booking-'+f.key} maxLength={f.key==='fullName'?200:500} aria-describedby="booking-validation" aria-invalid={validationError?.field===f.key}
                       value={form[f.key as keyof FormData] as string}
                       onChange={e => set(f.key as keyof FormData, e.target.value)}
                       placeholder={f.placeholder}
@@ -551,78 +595,77 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   </div>
                 ))}
                 <div>
-                  <label className={labelCls}>
+                  <label htmlFor="booking-validIdType" className={labelCls}>
                     VALID ID TYPE <span style={{ color: "#b91c1c" }}>*</span>
                   </label>
-                  <select
+                  <select id="booking-validIdType" aria-describedby="booking-validation" aria-invalid={validationError?.field==='validIdType'}
                     required
                     value={form.validIdType}
-                    onChange={event => set("validIdType", event.target.value)}
+                    onChange={event => {
+                      setForm(previous=>({...previous,validIdType:event.target.value,validIdNumber:''}));
+                      idSelectionVersion.current++;setIdImage(null);setIdConsent(false);setCheckingIdImage(false);
+                    }}
                     className={inputCls}
                     style={inputStyle}
                   >
-                    <option value="">Select the ID you will present</option>
+                    <option value="">Select the ID you will attach</option>
                     {validIdTypes.map(idType => <option key={idType} value={idType}>{idType}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className={labelCls}>
+                  <label htmlFor="booking-validIdNumber" className={labelCls}>
                     ID NUMBER <span style={{ color: "#b91c1c" }}>*</span>
                   </label>
-                  <input
+                  <input id="booking-validIdNumber" aria-describedby="booking-validation" aria-invalid={validationError?.field==='validIdNumber'}
                     required
-                    value={form.validIdNumber}
+                    maxLength={120} value={form.validIdNumber}
                     onChange={event => set("validIdNumber", event.target.value)}
                     placeholder="Enter the number shown on your ID"
                     className={inputCls}
                     style={inputStyle}
                   />
                 </div>
-                {form.validIdType === schoolIdType && (
-                  <div className="space-y-3 rounded border border-[#d9e2da] bg-[#f7faf7] p-4">
+                  <div className="space-y-3 rounded border border-[#d9e2da] bg-[#f7faf7] p-4" aria-label="Required ID attachment">
                     <label className="grid gap-2 text-sm font-bold text-[#34483a]">
-                      Picture of school ID <span className="text-red-700">*</span>
+                      Attach a photo of your valid ID <span className="text-red-700">*</span>
                       <input
                         required
+                        key={form.validIdType}
                         type="file"
+                        aria-label="Attach a photo of your ID"
                         accept="image/jpeg,image/png,image/webp"
-                        onChange={event => {
-                          const file = event.target.files?.[0] ?? null;
-                          if (file && !schoolIdImageTypes.includes(file.type)) {
-                            toast.error("Choose a JPG, PNG, or WebP image.");
-                            event.currentTarget.value = "";
-                            setSchoolIdImage(null);
-                            return;
-                          }
-                          if (file && file.size > maxSchoolIdImageBytes) {
-                            toast.error("The school ID image must be 5 MB or smaller.");
-                            event.currentTarget.value = "";
-                            setSchoolIdImage(null);
-                            return;
-                          }
-                          setSchoolIdImage(file);
-                          setSchoolIdConsent(false);
+                        disabled={checkingIdImage}
+                        onChange={async event => {
+                          const input=event.currentTarget,file=input.files?.[0]??null;
+                          const selection=++idSelectionVersion.current;
+                          setIdImage(null);setIdConsent(false);
+                          if(!file){setCheckingIdImage(false);return;}
+                          setCheckingIdImage(true);
+                          try{await validateAnnouncementImage(file);if(selection===idSelectionVersion.current)setIdImage(file);}
+                          catch(cause){if(selection===idSelectionVersion.current){input.value='';toast.error(cause instanceof Error?cause.message:'Choose a valid ID image.');}}
+                          finally{if(selection===idSelectionVersion.current)setCheckingIdImage(false);}
                         }}
                         className="min-h-11 w-full rounded border border-[#c9d1ca] bg-white p-2 text-sm file:mr-3 file:min-h-8 file:rounded file:border-0 file:bg-[#123323] file:px-3 file:font-semibold file:text-white"
                       />
                     </label>
                     <p className="text-xs leading-relaxed text-[#53645b]">
-                      Upload a clear picture of the school ID. JPG, PNG, or WebP; maximum 5 MB. Only authorized barangay staff can view it for this request.
+                      Required for every ID type. Upload a clear, readable JPG, PNG, or WebP photo, up to 5 MB. Only authorized barangay staff can view it for this request.
                     </p>
-                    {schoolIdImage && (
-                      <p className="break-all text-xs font-semibold text-[#34483a]">Selected: {schoolIdImage.name}</p>
+                    {checkingIdImage&&<p role="status" className="text-xs text-[#53645b]">Checking ID image…</p>}
+                    {idPreview&&<img src={idPreview} alt="Selected ID preview" className="max-h-48 w-full rounded border object-contain"/>}
+                    {idImage && (
+                      <p className="break-all text-xs font-semibold text-[#34483a]">Selected: {idImage.name}</p>
                     )}
                     <label className="flex items-start gap-2 text-sm leading-relaxed text-[#34483a]">
                       <input
                         type="checkbox"
-                        checked={schoolIdConsent}
-                        onChange={event => setSchoolIdConsent(event.target.checked)}
+                        checked={idConsent}
+                        onChange={event => setIdConsent(event.target.checked)}
                         className="mt-1 h-4 w-4 accent-[#123323]"
                       />
-                      <span>I confirm this is my school ID and allow authorized barangay staff to review this image for this request.</span>
+                      <span>I confirm this ID belongs to me and allow authorized barangay staff to review this image for this appointment.</span>
                     </label>
                   </div>
-                )}
               </div>
             )}
 
@@ -632,12 +675,12 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   Select the type of document you need and briefly explain the purpose.
                 </p>
                 <div>
-                  <label className={labelCls}>
+                  <label htmlFor="booking-requestType" className={labelCls}>
                     REQUEST TYPE <span style={{ color: "#b91c1c" }}>*</span>
                   </label>
-                  <select
+                  <select id="booking-requestType" aria-describedby="booking-validation" aria-invalid={validationError?.field==='requestType'}
                     value={form.requestType}
-                    onChange={e => setForm(previous => ({ ...previous, requestType: e.target.value, deliveryFormat: "" }))}
+                    onChange={e => {supportingServiceVersion.current++;setSettingsError("");setValidationError(null);setSupportingFiles({});setSupportingErrors({});setCheckingSupporting({});setForm(previous => ({ ...previous, requestType: e.target.value, deliveryFormat: "" }));}}
                     disabled={!configuration}
                     className={inputCls}
                     style={{ ...inputStyle, cursor: "pointer", appearance: "none" }}
@@ -648,15 +691,15 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                     {configuration?.services.filter(service => service.active).map(service => <option key={service.request_type} value={service.request_type}>{service.request_type}</option>)}
                   </select>
                 </div>
-                {selectedService && <div className="space-y-2 rounded border border-[#d9e2da] bg-[#f7faf7] p-3 text-sm text-[#34483a]"><p className="whitespace-pre-wrap break-words"><strong>Requirements:</strong> {selectedService.requirements || "Contact the barangay office to confirm requirements."}</p><p><strong>Fee:</strong> {selectedService.fee_description || "Not yet confirmed by staff."}</p><p><strong>Processing:</strong> {selectedService.processing_time || "Confirm with the barangay office."}</p></div>}
+                {selectedService && <div className="space-y-2 rounded border border-[#d9e2da] bg-[#f7faf7] p-3 text-sm text-[#34483a]"><p className="whitespace-pre-wrap break-words"><strong>Requirements:</strong> {selectedService.requirements || "Contact the barangay office to confirm requirements."}</p><p className="break-words"><strong>Booking ID:</strong> {idImage?`${idImage.name} attached in Personal Information`:'A valid ID photo is required for every booking.'}</p><p><strong>Additional document uploads:</strong> {supportingRequirements.length?supportingRequirements.map(item=>`${item.title}${item.required?' (required)':' (optional)'}`).join('; '):'None.'}</p><p><strong>Fee:</strong> {formatServiceFee(selectedService)}</p><p><strong>Processing:</strong> {selectedService.processing_time || "Confirm with the barangay office."}</p></div>}
                 {form.requestType === "Other barangay document" && (
                   <div>
-                    <label className={labelCls}>
+                    <label htmlFor="booking-otherRequestType" className={labelCls}>
                       DOCUMENT NAME <span style={{ color: "#b91c1c" }}>*</span>
                     </label>
-                    <input
+                    <input id="booking-otherRequestType" aria-describedby="booking-validation" aria-invalid={validationError?.field==='otherRequestType'}
                       required
-                      maxLength={100}
+                      maxLength={200}
                       value={form.otherRequestType}
                       onChange={e => set("otherRequestType", e.target.value)}
                       placeholder="Enter the barangay document you need"
@@ -666,11 +709,11 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   </div>
                 )}
                 <div>
-                  <label className={labelCls}>
+                  <label htmlFor="booking-purpose" className={labelCls}>
                     PURPOSE <span style={{ color: "#b91c1c" }}>*</span>
                   </label>
-                  <textarea
-                    value={form.purpose}
+                  <textarea id="booking-purpose" aria-describedby="booking-validation" aria-invalid={validationError?.field==='purpose'}
+                    maxLength={2000} value={form.purpose}
                     onChange={e => set("purpose", e.target.value)}
                     placeholder="Briefly describe the purpose of your request (e.g., For employment application at ABC Company)..."
                     rows={6}
@@ -702,6 +745,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                   </div>
                 </fieldset>
                 {form.requestType && !supportsSoftcopy && <p className="text-sm text-[#53645b]">This document is currently available as a hardcopy only.</p>}
+                {!!supportingRequirements.length&&<section className="space-y-3 rounded border border-[#c9d1ca] p-3" aria-label="Required supporting documents"><h3 className="font-bold">Supporting documents</h3><p className="text-sm text-[#53645b]">PDF, JPG, PNG, or WebP, up to 5 MB each. Staff will review your uploads.</p>{supportingRequirements.map(requirement=><label key={requirement.id} className="grid gap-1 text-sm font-semibold">{requirement.title} {requirement.required?'(Required)':'(Optional)'}{requirement.instructions&&<span className="whitespace-pre-wrap font-normal">{requirement.instructions}</span>}<input required={requirement.required} aria-invalid={!!supportingErrors[requirement.id]} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={event=>void selectSupportingFile(requirement.id,event.currentTarget)} className="min-h-11 w-full rounded border border-[#c9d1ca] bg-white px-3 py-2"/>{checkingSupporting[requirement.id]&&<span role="status" className="font-normal">Checking document…</span>}{supportingErrors[requirement.id]&&<span role="alert" className="font-normal text-red-800">{supportingErrors[requirement.id]}</span>}{supportingFiles[requirement.id]&&<span className="break-all font-normal">Selected: {supportingFiles[requirement.id].name}</span>}</label>)}</section>}
               </div>
             )}
 
@@ -710,7 +754,7 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                 <p className="text-sm leading-relaxed" style={{ color: "#53645b" }}>
                   Select an available weekday and appointment time.
                 </p>
-                <CalendarPicker selected={form.date} closures={configuration?.closures.map(closure => closure.closed_date) ?? []} daysAhead={configuration?.office.booking_days_ahead ?? 90} onSelect={date => setForm(previous => ({ ...previous, date, timeSlot: "" }))} />
+                <CalendarPicker selected={form.date} weekdays={configuration?.weekdays} closures={configuration?.closures.map(closure => closure.closed_date) ?? []} daysAhead={configuration?.office.booking_days_ahead ?? 90} onSelect={date => setForm(previous => ({ ...previous, date, timeSlot: "" }))} />
                 <fieldset>
                   <legend className="mb-2 text-sm font-bold text-[#34483a]">Preferred appointment time</legend>
                   {loadingSlots && <p role="status" className="mb-2 text-sm text-[#53645b]">Checking available places…</p>}
@@ -742,10 +786,10 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                     className="px-5 py-3.5"
                     style={{ background: "#f5f3f0", border: "1px solid #c4c0b9" }}
                   >
-                    <div className="text-[10px] font-bold tracking-[0.1em]">
+                    <div className="text-xs font-bold tracking-[0.1em]">
                       SELECTED: {format(form.date, "MMMM d, yyyy (EEEE)").toUpperCase()}
                     </div>
-                    <div className="text-[10px] mt-1" style={{ color: "#6e6b65" }}>
+                    <div className="text-xs mt-1" style={{ color: "#6e6b65" }}>
                       Appointment time: {form.timeSlot || "Select a time above"}
                     </div>
                   </div>
@@ -763,13 +807,16 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                     className="px-5 py-3"
                     style={{ background: "#f5f3f0", borderBottom: "1px solid #c4c0b9" }}
                   >
-                    <span className="text-[9px] font-bold tracking-[0.16em]">REQUEST_SUMMARY (READ-ONLY)</span>
+                    <span className="text-xs font-bold tracking-[0.16em]">REQUEST_SUMMARY (READ-ONLY)</span>
                   </div>
                   {[
                     { label: "FULL NAME", value: form.fullName },
                     { label: "ADDRESS", value: form.address },
                     { label: "VALID ID", value: `${form.validIdType} · ${form.validIdNumber}` },
-                    { label: "REQUEST TYPE", value: form.requestType },
+                    { label: "ID ATTACHMENT", value: idImage?.name??"Missing ID attachment" },
+                    { label: "REQUEST TYPE", value: form.requestType === "Other barangay document" ? form.otherRequestType.trim() : form.requestType },
+                    { label: "SERVICE FEE", value: selectedService?formatServiceFee(selectedService):'Confirm with the barangay office.' },
+                    { label: "ADDITIONAL FILES", value: supportingRequirements.map(item=>`${item.title}: ${supportingFiles[item.id]?.name??(item.required?'Missing':'Not attached')}`).join('; ')||'None required' },
                     { label: "PURPOSE", value: form.purpose },
                     { label: "APPOINTMENT DATE", value: form.date ? format(form.date, "MMMM d, yyyy") : "—" },
                     { label: "APPOINTMENT TIME", value: form.timeSlot },
@@ -781,17 +828,17 @@ export default function BookPage({ setActivePage, resident }: { setActivePage: (
                       style={{ borderBottom: i < arr.length - 1 ? "1px solid #c4c0b9" : "none" }}
                     >
                       <div
-                        className="text-[9px] font-bold tracking-[0.14em] flex-shrink-0 pt-0.5"
-                        style={{ width: 120, color: "#9e9b96" }}
+                        className="text-xs font-bold tracking-[0.14em] flex-shrink-0 pt-0.5"
+                        style={{ width: 120, color: "#61645f" }}
                       >
                         {row.label}
                       </div>
-                      <div className="text-[11px] font-bold" style={{ color: "#bf6318" }}>{row.value}</div>
+                      <div className="min-w-0 break-words text-xs font-bold [overflow-wrap:anywhere]" style={{ color: "#bf6318" }}>{row.value}</div>
                     </div>
                   ))}
                 </div>
                 <div className="px-5 py-4" style={{ background: "#fdf7f0", border: "1px solid #e8c99a" }}>
-                  <p className="text-[10px] leading-relaxed" style={{ color: "#6e6b65" }}>
+                  <p className="text-xs leading-relaxed" style={{ color: "#6e6b65" }}>
                     ⚠ By submitting, you confirm that all information provided is accurate. False declarations are subject to penalties under applicable laws.
                   </p>
                 </div>

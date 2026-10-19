@@ -1,0 +1,40 @@
+export async function runUsabilityChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,resize}){
+ const labelInput=async(label,value,scope='main')=>{
+  await evaluate(`(()=>{const root=document.querySelector(${JSON.stringify(scope)});const label=Array.from(root.querySelectorAll('label')).find(item=>item.textContent.trim().startsWith(${JSON.stringify(label)}));if(!label)throw new Error('Missing label '+${JSON.stringify(label)});label.querySelector('input,textarea,select').dataset.usabilityField='selected';})()`);
+  await input('[data-usability-field="selected"]',value);await evaluate(`document.querySelector('[data-usability-field="selected"]').removeAttribute('data-usability-field')`);
+ };
+ await evaluate(`(()=>{const s=window.__review;s.staff.superadmin=true;s.requests=Array.from({length:31},(_,n)=>({...s.requests[0],reference:'BRG-SORT-'+String(30-n).padStart(2,'0'),fullName:'Resident '+String(30-n).padStart(2,'0'),archived:false,status:'APPROVED',date:s.day,submittedAt:new Date(Date.UTC(2026,9,1,n)).toISOString()}));s.config.office.fee_tracking_enabled=true;s.config.services.find(service=>service.request_type==='Barangay Clearance').fee_amount=75.5;s.fee_records=[];s.failRpc=null;window.resetReview('staff','/staff');})()`);
+ await waitFor(`document.querySelector('table tbody tr')`);
+ await labelInput('Sort requests','name_asc');
+ await waitFor(`document.querySelector('table tbody tr').textContent.includes('Resident 00')`);
+ await click('Next page');await waitFor(`document.querySelector('table tbody tr').textContent.includes('Resident 25')`);
+ await check('Searchable requests sort the full result before paging',`document.querySelector('table tbody tr').textContent.includes('Resident 25')`);
+ await labelInput('Search requests','Resident 30');await waitFor(`document.querySelectorAll('table tbody tr').length===1&&document.querySelector('table tbody tr').textContent.includes('Resident 30')`);
+ await check('Searching resets the page and keeps the chosen sort',`Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Sort requests')).querySelector('select').value==='name_asc'`);
+ await resize(320);await fits('Request search and sort fit a 320 px phone');
+ await check('Mobile record cards retain their table title and field labels',`getComputedStyle(document.querySelector('caption')).display!=='none'&&document.querySelectorAll('tbody td[data-label]').length===7`);
+ await screenshot('readable-request-mobile');await resize(1280,1000);await screenshot('readable-request-desktop');
+ await navigate('Services & booking');await waitFor(`document.getElementById('create-service')`);
+ await labelInput('What would you like to manage?','create-service');
+ await input('select[aria-label="Suggestions for Service name"]','Certificate of Indigency');
+ await check('Service suggestions remain editable as a custom name',`Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Service name')).querySelector('input').value==='Certificate of Indigency'`);
+ await labelInput('Service name','Certificate of Local Assistance');
+ await evaluate(`document.getElementById('create-service').closest('form').dataset.usabilityForm='create'`);
+ await labelInput('Fee amount (PHP)','25.50','[data-usability-form="create"]');
+ await click('Create document service');await waitFor(`window.__review.config.services.some(service=>service.request_type==='Certificate of Local Assistance')`);
+ await check('Creating a custom service saves its fee and hardcopy default',`window.__review.config.services.some(service=>service.request_type==='Certificate of Local Assistance'&&service.fee_amount===25.5&&!service.softcopy_available)`);
+ await screenshot('service-feature-guide-desktop');await resize(320);await fits('Service suggestions and fee controls fit a 320 px phone');
+ await navigate('Fee records');await waitFor(`document.body.textContent.includes('Record payment or exemption')`);
+ await labelInput('Appointment or walk-in reference',await evaluate('window.__review.requests[0].reference'));await click('Look up request and fee');
+ await waitFor(`document.body.textContent.includes('Approved service fee: PHP 75.50')`);
+ await check('Fee lookup shows the resident and fills the configured service amount',`Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Amount (PHP)')).querySelector('input').value==='75.5'`);
+ await labelInput('Amount (PHP)','0');await check('Paid records reject zero before submission',`!Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Amount (PHP)')).querySelector('input').checkValidity()`);
+ await labelInput('Record type','EXEMPT');await check('Exempt records keep a zero amount and do not require a receipt',`Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Amount (PHP)')).querySelector('input').value==='0'&&!Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Exemption or waiver')).querySelector('input').required`);
+ await labelInput('Record type','PAID');await labelInput('Official receipt reference','OR-USABILITY-001');await labelInput('Payment details or reason','Office cash payment.');await click('Save fee record');
+ await waitFor(`window.__review.fee_records.length===1&&document.body.textContent.includes('OR-USABILITY-001')`);
+ await click('Record refund or void');await labelInput('Payment details or reason','Full refund authorized by office.');await click('Save fee record');
+ await waitFor(`window.__review.fee_records.length===2&&document.body.textContent.includes('Net recorded amount: PHP 0.00')`);
+ await check('A refund updates the total and removes the duplicate correction action',`!Array.from(document.querySelectorAll('button')).some(button=>button.textContent==='Record refund or void')&&document.body.textContent.includes('already has a refund record')`);
+ await fits('Fee records and corrections fit a 320 px phone');await screenshot('fee-records-mobile');
+ await resize(1280,1000);await screenshot('fee-records-desktop');
+}

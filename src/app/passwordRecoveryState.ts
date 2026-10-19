@@ -25,7 +25,7 @@ export function createPasswordRecoveryState(browser?: RecoveryBrowser) {
     const fragment = new URLSearchParams(browser.location.hash.slice(1));
     let stored = false;
     try { stored = browser.sessionStorage.getItem(storageKey) === "1"; } catch {}
-    if (query.get("recovery") === "1" || fragment.get("type") === "recovery" || stored) {
+    if (query.get("recovery") === "1" || fragment.get("type") === "recovery" || fragment.get("type") === "invite" || stored) {
       setPending(true);
     }
   }

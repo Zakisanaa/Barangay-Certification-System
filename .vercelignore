@@ -1,0 +1,12 @@
+node_modules
+dist
+test-results
+tests
+scripts/*
+!scripts/verify-build.mjs
+supabase
+.git
+.vercel
+.env*
+BRGY. CERTS AND ETC
+*.md

@@ -1,7 +1,10 @@
-import { FormEvent, useState } from "react";
+import {useUnsavedChanges} from '../useUnsavedChanges';
+import { FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ResidentAccount, updateResidentProfile } from "../residentAuth";
 import { formatResidentAddress, getResidentAddressDetails, RESIDENT_BARANGAY_ADDRESS } from "../residentAddress";
+import ResidentVerification from './ResidentVerification';
+import AccountSecurity from './AccountSecurity';
 
 export default function ResidentProfilePage({
   resident,
@@ -10,12 +13,14 @@ export default function ResidentProfilePage({
   resident: ResidentAccount;
   onProfileUpdated: (account: ResidentAccount) => void;
 }) {
+  const revision=useRef(resident.revision);
   const [form, setForm] = useState({
     firstName: resident.firstName,
     lastName: resident.lastName,
     contactNumber: resident.contactNumber,
     addressDetails: getResidentAddressDetails(resident.address),
   });
+  const baseline=useRef(JSON.stringify(form));useUnsavedChanges(JSON.stringify(form)!==baseline.current);
   const [saving, setSaving] = useState(false);
 
   const updateField = (field: keyof typeof form, value: string) => {
@@ -31,13 +36,14 @@ export default function ResidentProfilePage({
     setSaving(true);
     try {
       const account = await updateResidentProfile({
-        id: resident.id,
+        id: resident.id,revision:revision.current,
         firstName: form.firstName,
         lastName: form.lastName,
         contactNumber: form.contactNumber,
         address: formatResidentAddress(form.addressDetails),
       });
-      onProfileUpdated(account);
+      revision.current=account.revision;onProfileUpdated(account);
+      baseline.current=JSON.stringify({firstName:account.firstName,lastName:account.lastName,contactNumber:account.contactNumber,addressDetails:getResidentAddressDetails(account.address)});
       setForm({
         firstName: account.firstName,
         lastName: account.lastName,
@@ -81,7 +87,7 @@ export default function ResidentProfilePage({
             Email address
             <input type="email" value={resident.email} readOnly aria-describedby="profile-email-note" className={`${inputClass} cursor-not-allowed bg-[#f5f7f5] text-[#6e7a71]`} />
             <span id="profile-email-note" className="text-xs font-normal text-[#6e6b65]">
-              This is your sign-in email. Changing it requires a separate account-security process.
+              Use Change sign-in email below to request a verified email change.
             </span>
           </label>
 
@@ -110,6 +116,7 @@ export default function ResidentProfilePage({
             </button>
           </div>
         </form>
+        <div className="mt-5 space-y-5"><AccountSecurity resident={resident}/>{resident.role==='resident'&&<ResidentVerification residentId={resident.id}/>}</div>
       </div>
     </section>
   );

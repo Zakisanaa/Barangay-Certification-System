@@ -2,12 +2,29 @@
 input, textarea, select, fieldset { min-width: 0; }
 img { max-width: 100%; }
 
+/* Signed-in pages scroll inside the portal; public/auth pages use the browser. */
+html.portal-active, html.portal-active body, html.portal-active #root { height: 100%; overflow: hidden; }
+.portal-main { position: relative; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+/* The dialog is the only active scroller while a modal is open. */
+body:has([data-slot="dialog-content"][data-state="open"]) .portal-main,
+body:has([data-slot="dialog-content"][data-state="open"]) .portal-nav-scroll { overflow: hidden; }
+
+/* Keep record headings visible and long values readable at desktop widths. */
+.responsive-table { border-collapse: collapse; table-layout: fixed; }
+.responsive-table caption { padding: 16px; text-align: left; color: #122d1f; font-weight: 700; background: #eef5ef; }
+.responsive-table th { color: #243e2e; background: #e5eee7; font-size: 0.875rem; text-transform: none; }
+.responsive-table th, .responsive-table td { overflow-wrap: anywhere; vertical-align: top; }
+.responsive-table tbody tr:nth-child(even) { background: #f7faf7; }
+.responsive-table td { color: #24362a; }
+section[id], form[id] { scroll-margin-top: 16px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid #4b8563; outline-offset: 2px; }
+
 @media (max-width: 767px) {
   html { font-size: 16px; }
   input, textarea, select { font-size: 16px; }
   button, summary { min-height: 44px; }
 
-  .responsive-table, .responsive-table tbody { display: block; width: 100%; }
+  .responsive-table, .responsive-table tbody, .responsive-table caption { display: block; width: 100%; }
   .responsive-table thead { display: none; }
   .responsive-table tbody { padding: 12px; }
   .responsive-table tr {

@@ -1,25 +1,28 @@
 import { useEffect, useState } from "react";
+import LoadFeedback from './LoadFeedback';
 import { CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import { getWalkInShifts, subscribeWalkInShifts, WalkInShift } from "../portalData";
 
 export default function WalkInSchedulePage() {
+  const [loading,setLoading]=useState(true),[error,setError]=useState(""),[revision,setRevision]=useState(0);
   const [shifts, setShifts] = useState<WalkInShift[]>([]);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
+      setLoading(true);
       try {
         const loaded = await getWalkInShifts();
-        if (active) setShifts(loaded);
+        if(active){setShifts(loaded);setError("");}
       } catch (error) {
         console.error("Unable to load walk-in schedule.", error);
-        if (active) toast.error(error instanceof Error ? error.message : "Could not load schedule.");
-      }
+        if(active)setError(error instanceof Error?error.message:"Could not load schedule.");
+      }finally{if(active)setLoading(false);}
     };
     void refresh();
     const unsubscribe = subscribeWalkInShifts(() => { void refresh(); });
     return () => { active = false; unsubscribe(); };
-  }, []);
+  }, [revision]);
 
   return (
     <div className="min-h-full bg-[#f4f7f4] p-4 md:p-7">
@@ -37,7 +40,8 @@ export default function WalkInSchedulePage() {
               <p className="text-sm text-[#53645b]">Hours may change on holidays or during official events.</p>
             </div>
           </div>
-          {shifts.filter((shift) => shift.active).length ? (
+          <LoadFeedback loading={loading} error={error} onRetry={()=>setRevision(value=>value+1)} label="walk-in schedule"/>
+          {!loading&&!error&&(shifts.filter((shift) => shift.active).length ? (
             <div className="divide-y divide-[#e3e8e3]">
               {shifts.filter((shift) => shift.active).map((shift) => (
                 <article key={shift.id} className="grid gap-2 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -54,7 +58,7 @@ export default function WalkInSchedulePage() {
             </div>
           ) : (
             <p className="p-6 text-base text-[#53645b]">No walk-in schedule has been posted. Please contact the Barangay Hall.</p>
-          )}
+          ))}
         </div>
         <p className="mt-4 rounded border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-950">
           Published schedules are shared from the Barangay database. Confirm staff assignments and service hours with the Barangay before relying on a posted entry.

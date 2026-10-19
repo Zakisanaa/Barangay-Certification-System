@@ -31,7 +31,7 @@ before(async () => {
     grant execute on function auth.uid(), auth.role() to anon, authenticated, service_role;
     create schema storage;
     create function storage.foldername(name text) returns text[] language sql immutable as $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
-    create table storage.objects(id uuid default gen_random_uuid(), bucket_id text, name text);
+    create table storage.objects(id uuid default gen_random_uuid(), bucket_id text, name text, created_at timestamptz default now());
     alter table storage.objects enable row level security;
     grant usage on schema storage to authenticated, service_role;
     grant select, insert, delete on storage.objects to authenticated;
@@ -44,13 +44,14 @@ before(async () => {
     '20261014000000_private_certificate_templates.sql', '20261014000100_completed_certificates.sql',
     '20261015000000_booking_and_request_history.sql',
     '20261015000100_announcement_photos_and_banoy.sql',
+    '20261018000000_priority_one.sql',
   ];
   // PGlite has native gen_random_uuid; the existing optional pgcrypto extension is not required here.
   for (const name of migrationNames) {
     const sql = (await fs.readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8')).replace('create extension if not exists pgcrypto;', '');
     await db.exec(sql);
   }
-  await db.query(`insert into auth.users(id,email,raw_user_meta_data) values ($1,'a@example.test','{"first_name":"Resident A"}'),($2,'b@example.test','{"first_name":"Resident B"}'),($3,'staff@example.test','{"first_name":"Staff"}')`, [residentA, residentB, staff]);
+  await db.query(`insert into auth.users(id,email,raw_user_meta_data) values ($1,'a@example.test','{"first_name":"Resident","last_name":"A","contact_number":"09931411699","address":"Lagasit"}'),($2,'b@example.test','{"first_name":"Resident","last_name":"B","contact_number":"09931411698","address":"Lagasit"}'),($3,'staff@example.test','{"first_name":"Test","last_name":"Staff","contact_number":"09931411697","address":"Lagasit"}')`, [residentA, residentB, staff]);
   await db.query("update public.resident_profiles set role = 'staff' where id = $1", [staff]);
   day = (await db.query(`select day::date::text as day from generate_series((now() at time zone 'Asia/Manila')::date + 1, (now() at time zone 'Asia/Manila')::date + 7, '1 day') day where extract(isodow from day) < 6 limit 1`)).rows[0].day;
 });
@@ -148,7 +149,7 @@ test('capacity, duplicate requests, and availability counts are enforced without
   await asUser(residentA);
   const history = await db.query('select * from public.request_events where request_reference = $1 order by created_at', [reference]);
   assert.equal(history.rows.length, 2);
-  assert.equal(history.rows[1].actor_name.trim(), 'Staff');
+  assert.equal(history.rows[1].actor_name.trim(), 'Test Staff');
   assert.match(history.rows[1].description, /proof of residency/);
   const newReference = await submit();
   await assert.rejects(db.query("update public.appointment_requests set status = 'APPROVED' where reference = $1 returning *", [newReference]).then(result => { if (!result.rows.length) throw new Error('Not allowed by RLS'); }), /Not allowed/);

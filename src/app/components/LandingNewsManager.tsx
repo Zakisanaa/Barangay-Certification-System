@@ -1,14 +1,20 @@
+import ListTools from './ListTools';
+import {manilaTime} from '../manilaTime';
+import {useUnsavedChanges,confirmDiscardChanges} from '../useUnsavedChanges';
 import { useEffect, useRef, useState } from "react";
 import { Archive, Pencil, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { getPublicPosts, PostType, PublicPost, savePublicPost, setPublicPostArchived, subscribePublicPosts } from "../portalData";
+import { getPostPage,getPublicPosts, PostType, PublicPost, savePublicPost, setPublicPostArchived, subscribePublicPosts } from "../portalData";
 import { getAnnouncementImageUrl, removeAnnouncementImage, uploadAnnouncementImage, validateAnnouncementImage } from "../announcementImages";
+import ListPager from './ListPager';
 import AnnouncementImage from "./AnnouncementImage";
 
 const emptyDraft = { title: "", content: "", type: "NOTICE" as PostType, imagePath: null as string | null, imageAlt: "" };
 
 export default function LandingNewsManager() {
+  const [page,setPage]=useState(0),[total,setTotal]=useState(0),[revision,setRevision]=useState(0),[loading,setLoading]=useState(true);
+  const [query,setQuery]=useState(""),[sort,setSort]=useState("newest");
   const [posts, setPosts] = useState<PublicPost[]>([]);
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -19,25 +25,29 @@ export default function LandingNewsManager() {
   const [validating, setValidating] = useState(false);
   const [loadError, setLoadError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
-  const lock = useRef(false);
+  const baseline=useRef(JSON.stringify(emptyDraft));useUnsavedChanges(JSON.stringify(draft)!==baseline.current||!!file);
+  const lock = useRef(false),editingRevision=useRef<number|undefined>(undefined);
   const inputClass = "min-h-11 w-full rounded border border-[#c9d1ca] bg-white px-3 py-2 text-base";
 
   useEffect(() => {
     let active = true;
+    let refreshGeneration=0;
     const refresh = async () => {
-      try { const loaded = await getPublicPosts(); if (active) { setPosts(loaded); setLoadError(""); } }
-      catch (cause) { if (active) setLoadError(cause instanceof Error ? cause.message : "Could not load announcements."); }
+      const generation=++refreshGeneration;setLoading(true);
+      try { const loaded=await getPostPage({page,query,sort,archived:showArchived});if(active&&generation===refreshGeneration){setPosts(loaded.rows);setTotal(loaded.total);setLoadError("");} }
+      catch (cause) { if (active&&generation===refreshGeneration) setLoadError(cause instanceof Error ? cause.message : "Could not load announcements."); }
+      finally{if(active&&generation===refreshGeneration)setLoading(false);}
     };
     void refresh();
     const unsubscribe = subscribePublicPosts(() => { void refresh(); });
     return () => { active = false; unsubscribe(); };
-  }, []);
+  }, [page,query,sort,showArchived,revision]);
   useEffect(() => {
     if (!file) { setPreview(""); return; }
     const url = URL.createObjectURL(file); setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
-  const reset = () => { setDraft(emptyDraft); setEditingId(null); setFile(null); if (fileInput.current) fileInput.current.value = ""; };
+  const reset = () => { baseline.current=JSON.stringify(emptyDraft);setDraft(emptyDraft); setEditingId(null); setFile(null); if (fileInput.current) fileInput.current.value = ""; };
   const submitPost = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (lock.current || validating || !draft.title.trim() || !draft.content.trim()) return;
@@ -48,12 +58,12 @@ export default function LandingNewsManager() {
     let saved = false;
     try {
       if (file) uploadedPath = await uploadAnnouncementImage(id, file);
-      const next: PublicPost = { ...draft, title: draft.title.trim(), content: draft.content.trim(), id,
+      const next: PublicPost = { revision:editingId?editingRevision.current:undefined,...draft, title: draft.title.trim(), content: draft.content.trim(), id,
         imagePath: uploadedPath ?? draft.imagePath, imageAlt: draft.imageAlt.trim(),
         archived: previous?.archived ?? false, publishedAt: previous?.publishedAt ?? new Date().toISOString() };
       await savePublicPost(next); saved = true;
       setPosts(current => [next, ...current.filter(post => post.id !== id)]);
-      reset(); toast.success("Announcement saved.");
+      reset();setRevision(value=>value+1); toast.success("Announcement saved.");
       if (previous?.imagePath && previous.imagePath !== next.imagePath) await removeAnnouncementImage(previous.imagePath);
     } catch (cause) {
       if (uploadedPath && !saved) await removeAnnouncementImage(uploadedPath);
@@ -61,12 +71,13 @@ export default function LandingNewsManager() {
     } finally { lock.current = false; setBusy(false); }
   };
   const toggleArchive = async (post: PublicPost) => {
+    if(post.id===editingId&&!confirmDiscardChanges())return;
     if (lock.current) return;
     lock.current = true; setBusy(true);
     try {
-      await setPublicPostArchived(post.id, !post.archived);
-      setPosts(current => current.map(item => item.id === post.id ? { ...item, archived: !post.archived } : item));
-      if (post.id === editingId) reset();
+      await setPublicPostArchived(post.id, !post.archived,post.revision);
+      setPosts(current => current.map(item => item.id === post.id ? { ...item, archived: !post.archived,revision:(post.revision??1)+1 } : item));
+      setRevision(value=>value+1);if (post.id === editingId) reset();
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not update the announcement."); }
     finally { lock.current = false; setBusy(false); }
   };
@@ -76,9 +87,10 @@ export default function LandingNewsManager() {
   return <section className="space-y-5 border border-[#c4c0b9] bg-white p-4 md:p-6">
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-xl font-bold text-[#122d1f]">Landing page news</h1><p className="mt-1 text-sm text-[#53645b]">Publish announcements with an optional photo. Residents see them on the public page and in the portal.</p></div>
-      <button type="button" disabled={busy} onClick={() => setShowArchived(value => !value)} className="min-h-11 rounded border border-[#c9d1ca] px-4 text-sm font-semibold">{showArchived ? "View published" : "View archived"}</button>
+      <button type="button" disabled={busy} onClick={() => {setPage(0);setShowArchived(value => !value);}} className="min-h-11 rounded border border-[#c9d1ca] px-4 text-sm font-semibold">{showArchived ? "View published" : "View archived"}</button>
     </header>
-    {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{loadError}</p>}
+    {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{loadError} <button type="button" className="min-h-11 underline" onClick={()=>setRevision(value=>value+1)}>Retry loading announcements</button></p>}
+    {loading&&<p role="status" className="text-sm">Loading announcements…</p>}
     <form onSubmit={submitPost} className="grid min-w-0 gap-4 rounded border border-[#d7ddd7] bg-[#f7faf7] p-4 md:grid-cols-2">
       <h2 className="font-bold md:col-span-2">{editingId ? "Edit announcement" : "Add an announcement"}</h2>
       <label className="grid gap-1.5 text-sm font-semibold">Title<input required maxLength={120} disabled={busy} value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} className={inputClass} /></label>
@@ -103,20 +115,22 @@ export default function LandingNewsManager() {
       </div>
       <div className="flex flex-wrap gap-2 md:col-span-2">
         <button disabled={busy || validating || !draft.title.trim() || !draft.content.trim()} className="flex min-h-11 items-center gap-2 rounded bg-[#123323] px-5 text-sm font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" />{busy ? "Saving…" : editingId ? "Save changes" : "Publish announcement"}</button>
-        <button type="button" disabled={busy || validating} onClick={reset} className="min-h-11 rounded border border-[#c9d1ca] px-5 text-sm font-semibold">{editingId ? "Cancel editing" : "Clear draft"}</button>
+        <button type="button" disabled={busy || validating} onClick={()=>{if(confirmDiscardChanges())reset();}} className="min-h-11 rounded border border-[#c9d1ca] px-5 text-sm font-semibold">{editingId ? "Cancel editing" : "Clear draft"}</button>
       </div>
     </form>
+    <h2 className="text-lg font-bold">Published and archived announcements</h2>
+    <ListTools label="announcements" query={query} onQuery={value=>{setPage(0);setQuery(value);}} sort={sort} onSort={value=>{setPage(0);setSort(value);}} options={[["newest","Newest first"],["oldest","Oldest first"],["name_asc","Title A-Z"],["name_desc","Title Z-A"]]}/>
     <div className="divide-y divide-[#e3e8e3] rounded border border-[#d7ddd7]">
       {visiblePosts.length ? visiblePosts.map(post => <article key={post.id} className="space-y-3 p-4">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-[#53645b]"><strong>{post.type}</strong><time dateTime={post.publishedAt}>{format(new Date(post.publishedAt), "MMM d, yyyy")}</time></div>
+        <div className="flex flex-wrap items-center gap-2 text-sm text-[#53645b]"><strong>{post.type}</strong><time dateTime={post.updatedAt??post.publishedAt}>{post.updatedAt?'Updated':'Published'} {manilaTime(post.updatedAt??post.publishedAt)}</time><span>Asia/Manila</span></div>
         <h2 className="break-words text-lg font-bold text-[#122d1f]">{post.title}</h2>
         <p className="whitespace-pre-line break-words text-base text-[#53645b]">{post.content}</p>
         <AnnouncementImage post={post} />
         <div className="flex flex-wrap gap-2">
-          {!showArchived && <button type="button" disabled={busy || validating} onClick={() => { setEditingId(post.id); setDraft({ title: post.title, content: post.content, type: post.type, imagePath: post.imagePath ?? null, imageAlt: post.imageAlt ?? "" }); setFile(null); if (fileInput.current) fileInput.current.value = ""; }} className="flex min-h-11 items-center gap-2 rounded border border-[#c9d1ca] px-3 text-sm font-semibold"><Pencil className="h-4 w-4" />Edit</button>}
+          {!showArchived && <button type="button" disabled={busy || validating} onClick={() => { if(!confirmDiscardChanges())return;baseline.current=JSON.stringify({title:post.title,content:post.content,type:post.type,imagePath:post.imagePath??null,imageAlt:post.imageAlt??""});editingRevision.current=post.revision;setEditingId(post.id); setDraft({ title: post.title, content: post.content, type: post.type, imagePath: post.imagePath ?? null, imageAlt: post.imageAlt ?? "" }); setFile(null); if (fileInput.current) fileInput.current.value = ""; }} className="flex min-h-11 items-center gap-2 rounded border border-[#c9d1ca] px-3 text-sm font-semibold"><Pencil className="h-4 w-4" />Edit</button>}
           <button type="button" disabled={busy} onClick={() => void toggleArchive(post)} className="flex min-h-11 items-center gap-2 rounded border border-[#c9d1ca] px-3 text-sm font-semibold">{showArchived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}{showArchived ? "Restore" : "Archive"}</button>
         </div>
-      </article>) : <p className="p-5 text-sm text-[#53645b]">{showArchived ? "No archived announcements." : "No published announcements yet."}</p>}
-    </div>
+      </article>) : !loading&&!loadError?<p className="p-5 text-sm text-[#53645b]">{showArchived ? "No archived announcements." : "No published announcements yet."}</p>:null}
+    </div><ListPager page={page} total={total} onPage={setPage}/>
   </section>;
 }
