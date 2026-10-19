@@ -89,7 +89,7 @@ try {
   };
   const waitFor = async expression => {
     for (let attempt = 0; attempt < 150; attempt++) {
-      if (await evaluate(expression)) return;
+      if (await evaluate(`!!(${expression})`)) return;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     throw new Error('Published page did not become ready.');
