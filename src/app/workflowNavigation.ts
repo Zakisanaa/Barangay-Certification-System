@@ -1,4 +1,4 @@
-export type WorkflowPage='admin'|'staff-payments'|'staff-register'|'staff-residents'|'staff-concerns'|'staff-queue'|'staff-settings';
+export type WorkflowPage='admin'|'staff-payments'|'staff-register'|'staff-residents'|'staff-concerns'|'staff-queue'|'staff-settings'|'staff-banoy';
 export type WorkflowMode='record'|'history';
 export type WorkflowTarget={reference:string;mode:WorkflowMode;token:string};
 export type WorkflowNavigate=(page:WorkflowPage,reference?:string,mode?:WorkflowMode)=>void;

@@ -1,3 +1,4 @@
+import {runCombinedSettingsInboxChecks} from './combined-settings-inbox-ui-checks.mjs';
 import {runSettingsAuditEmailChecks} from './settings-audit-email-ui-checks.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -62,7 +63,7 @@ try {
   await call('Page.navigate',{url:`${origin}/tests/fixtures/ui.html`});
   await waitFor(`document.body.textContent.includes('Admin dashboard') && document.querySelector('table')`);
   await evaluate('window.confirm=()=>true');
-  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email'].includes(process.env.UI_CHECK_GROUP)){
+  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP)){
   await fits('Admin dashboard fits a 320 px phone');
   await check('Staff table becomes cards on mobile',`getComputedStyle(document.querySelector('table')).display==='block' && getComputedStyle(document.querySelector('thead')).display==='none'`);
   await input('input[type="search"]','No matching person');await waitFor(`document.body.textContent.includes('No requests to show')`);await click('Clear filters');await click('VIEW');
@@ -73,7 +74,7 @@ try {
   await waitFor(`window.__review.requests[0].status==='REJECTED'`);await check('Rejection reason and staff event are saved',`window.__review.requests[0].rejectionReason==='Please supply proof of residency.' && window.__review.events.some(event=>event.status==='REJECTED')`);
   await navigate('Services & booking');await waitFor(`document.body.textContent.includes('Appointment slot limits')`);await fits('Staff service settings fit mobile');
   await input('textarea','Updated staff requirements');
-  await evaluate(`(()=>{const label=Array.from(document.querySelectorAll('label')).find(label=>label.textContent.includes('Verified fee'));const element=label.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,'PHP 75 confirmed');element.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+  await evaluate(`(()=>{const label=Array.from(document.querySelectorAll('label')).find(label=>label.textContent.includes('Payment instructions'));const element=label.querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(element,'PHP 75 confirmed');element.dispatchEvent(new Event('input',{bubbles:true}));})()`);
   await click('Save document service');await waitFor(`window.__review.config.services[0].fee_description==='PHP 75 confirmed'`);
   await screenshot('staff-settings-mobile');
   await navigate('Resident masterlist');await waitFor(`document.querySelector('table')`);await fits('Resident masterlist fits mobile cards');
@@ -178,11 +179,12 @@ try {
   await runPriorityThreeChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,call,resize});
   await runUsabilityChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,resize});
   }
-  if(!['approved-services','connected','settings-audit-email'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
-  if(!['scrolling','approved-services','connected','settings-audit-email'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
-  if(!['scrolling','portal-fixes','connected','settings-audit-email'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
+  if(!['scrolling','approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['scrolling','portal-fixes','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='connected')await runConnectedWorkflowChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='settings-audit-email')await runSettingsAuditEmailChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='combined-settings-inbox')await runCombinedSettingsInboxChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(exceptions.length)throw new Error('Browser exceptions: '+JSON.stringify(exceptions));
   await fs.writeFile(path.join(output,'ui-summary.json'),JSON.stringify({checks:checkCount,passed:true,isolated:true,realEmailsSent:0,productionWrites:0},null,2));
   console.log(`All ${checkCount} UI checks passed with isolated mock services. No real emails or database writes were made.`);

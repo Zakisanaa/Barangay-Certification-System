@@ -12,7 +12,7 @@ const inputClass = "min-h-11 w-full rounded border border-[#c9d1ca] bg-white px-
 const buttonClass = "min-h-11 rounded bg-[#123323] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const cardClass = "space-y-4 rounded-lg border border-[#d7ddd7] bg-white p-4 sm:p-6";
 
-export default function ChatbotKnowledgePage() {
+export default function ChatbotKnowledgePage({focusReference}:{focusReference?:string}) {
   const [entryPage,setEntryPage]=useState(0),[questionPage,setQuestionPage]=useState(0);
   const [entries,setEntries] = useState<KnowledgeEntry[]>([]);
   const [questions,setQuestions] = useState<UnansweredQuestion[]>([]);
@@ -38,6 +38,8 @@ export default function ChatbotKnowledgePage() {
     finally{if(alive.current)setLoading(false);}
   };
   useEffect(()=>{alive.current=true;void load(); const unsubscribe=subscribeChatbotChanges(()=>void load());return()=>{alive.current=false;unsubscribe();};},[]);
+  useEffect(()=>{if(!focusReference)return;const index=questions.findIndex(question=>question.id===focusReference);if(index>=0)setQuestionPage(Math.floor(index/25));},[focusReference,questions]);
+  useEffect(()=>{if(!focusReference)return;const frame=requestAnimationFrame(()=>document.getElementById('banoy-review-'+focusReference)?.scrollIntoView({block:'center'}));return()=>cancelAnimationFrame(frame);},[focusReference,questions,questionPage]);
   const run = async (work:()=>Promise<void>) => {
     if(lock.current)return;lock.current=true;setBusy(true);
     try{await work();}catch(cause){toast.error(cause instanceof Error?cause.message:"Could not complete that action.");}finally{lock.current=false;if(alive.current)setBusy(false);}
@@ -95,9 +97,9 @@ export default function ChatbotKnowledgePage() {
     </section>
     <section className={cardClass}>
       <ListPager page={questionPage} total={questions.length} onPage={setQuestionPage}/>
-      <h2 className="text-lg font-bold">Questions to review ({questions.length})</h2>
+      <h2 className="text-lg font-bold">Questions to review ({questions.length})</h2>{focusReference&&!loading&&!error&&!questions.some(question=>question.id===focusReference)&&<p role="status" className="rounded border p-3 text-sm">This question is already reviewed or is no longer in the review queue.</p>}
       <p className="text-sm text-[#53645b]">Recent unanswered questions and answers marked unhelpful. Review the wording and add a confirmed answer.</p>
-      {questions.length?questions.slice(questionPage*25,questionPage*25+25).map(question=><article key={question.id} className="space-y-2 border-t border-[#d7ddd7] pt-3"><p className="whitespace-pre-line break-words text-sm font-semibold">{question.question}</p><p className="text-xs text-[#53645b]">{new Date(question.created_at).toLocaleString('en-PH',{timeZone:'Asia/Manila'})}{question.helpful===false?" · Marked unhelpful":" · Unanswered"}</p><div className="flex flex-wrap gap-2"><button disabled={busy} type="button" className={buttonClass} onClick={()=>{if(!confirmDiscardChanges())return;baseline.current=JSON.stringify({title:question.question.slice(0,160),question:question.question.slice(0,500),answer:"",examples:"",active:false});setDraft({...emptyDraft(),title:question.question.slice(0,160),question:question.question.slice(0,500)});setExamples("");setSelectedQuestion(question.id);editor.current?.scrollIntoView({behavior:"smooth"});}}>Teach an answer</button><button disabled={busy} type="button" className="min-h-11 rounded border border-[#c9d1ca] px-4 text-sm font-semibold" onClick={()=>void run(async()=>{await resolveChatQuestion(question.id);await load();})}>Mark reviewed</button></div></article>):!loading&&!error?<p className="text-sm text-[#53645b]">No questions awaiting review.</p>:null}
+      {questions.length?questions.slice(questionPage*25,questionPage*25+25).map(question=><article key={question.id} id={'banoy-review-'+question.id} aria-label={question.id===focusReference?'Selected question to review':undefined} className={`space-y-2 border-t border-[#d7ddd7] pt-3 ${question.id===focusReference?'rounded border border-amber-300 bg-amber-50 p-3':''}`}><p className="whitespace-pre-line break-words text-sm font-semibold">{question.question}</p><p className="text-xs text-[#53645b]">{new Date(question.created_at).toLocaleString('en-PH',{timeZone:'Asia/Manila'})}{question.helpful===false?" · Marked unhelpful":" · Unanswered"}</p><div className="flex flex-wrap gap-2"><button disabled={busy} type="button" className={buttonClass} onClick={()=>{if(!confirmDiscardChanges())return;baseline.current=JSON.stringify({title:question.question.slice(0,160),question:question.question.slice(0,500),answer:"",examples:"",active:false});setDraft({...emptyDraft(),title:question.question.slice(0,160),question:question.question.slice(0,500)});setExamples("");setSelectedQuestion(question.id);editor.current?.scrollIntoView({behavior:"smooth"});}}>Teach an answer</button><button disabled={busy} type="button" className="min-h-11 rounded border border-[#c9d1ca] px-4 text-sm font-semibold" onClick={()=>void run(async()=>{await resolveChatQuestion(question.id);await load();})}>Mark reviewed</button></div></article>):!loading&&!error?<p className="text-sm text-[#53645b]">No questions awaiting review.</p>:null}
     </section>
     <section className={cardClass}>
       <h2 className="text-lg font-bold">Saved knowledge</h2>

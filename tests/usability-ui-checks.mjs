@@ -15,7 +15,7 @@ export async function runUsabilityChecks({evaluate,waitFor,check,click,input,nav
  await check('Mobile record cards retain their table title and field labels',`getComputedStyle(document.querySelector('caption')).display!=='none'&&document.querySelectorAll('tbody td[data-label]').length===7`);
  await screenshot('readable-request-mobile');await resize(1280,1000);await screenshot('readable-request-desktop');
  await navigate('Services & booking');await waitFor(`document.getElementById('create-service')`);
- await labelInput('What would you like to manage?','create-service');
+ await click('Add a document service');
  await input('select[aria-label="Suggestions for Service name"]','Certificate of Indigency');
  await check('Service suggestions remain editable as a custom name',`Array.from(document.querySelectorAll('label')).find(label=>label.textContent.startsWith('Service name')).querySelector('input').value==='Certificate of Indigency'`);
  await labelInput('Service name','Certificate of Local Assistance');

@@ -42,9 +42,9 @@ export default function FeeRecordsPage({target,canConfigureFees=false}:{target?:
  });
  return <div className="space-y-5 p-4 md:p-7">
   <header className={card}><h1 className="text-2xl font-bold">Fees and receipt records</h1><p className="text-sm text-[#53645b]">Look up a request, confirm its service fee, and record the office payment or exemption. Refunds and voids stay linked to the original receipt.</p>
-   {enabled===false&&<p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Fee tracking is disabled. In Services & booking, enable fee and receipt recording under Office information, then save. A staff member with settings access can make this change.</p>}
+   {enabled===false&&<p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Fee tracking is disabled. In Services & booking, choose Office details and payment recording, turn on Allow staff to record payments and receipts, then save office information. A staff member with settings access can make this change.</p>}
    {enabled===null&&!settingsError&&<p role="status">Loading fee tracking settings…</p>}
-   <p className="text-sm text-[#53645b]">Set the amount residents see in Services & booking → Document requirements and fees. This page records payments already handled by the office.</p>
+   <p className="text-sm text-[#53645b]">Set the amount residents see in Services & booking → Document services. Choose the document and edit its fee amount. This page records payments already handled by the office.</p>
   </header>
   <WorkflowFeedback error={settingsError||action.error} notice={action.notice}/>{settingsError&&<button type="button" className={button} onClick={()=>setSettingsRevision(value=>value+1)}>Retry fee settings</button>}
   {enabled===false&&canConfigureFees&&<button type="button" disabled={action.busy} className={primary} onClick={()=>void action.run(async()=>{const current=await requireSupabase().from('office_settings').select('revision').eq('id',1).single();if(current.error)throw new Error('Could not load office settings. Retry.');await adminRpc<{revision:number}>('set_fee_tracking',{p_enabled:true,p_revision:current.data.revision});setSettingsRevision(value=>value+1);},'Fee recording enabled.')}>Enable fee recording</button>}
