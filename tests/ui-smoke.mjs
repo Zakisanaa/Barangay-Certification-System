@@ -1,3 +1,4 @@
+import {runTemplateLiveNotificationChecks} from './template-live-notifications-ui-checks.mjs';
 import {runCombinedSettingsInboxChecks} from './combined-settings-inbox-ui-checks.mjs';
 import {runSettingsAuditEmailChecks} from './settings-audit-email-ui-checks.mjs';
 import fs from 'node:fs/promises';
@@ -24,7 +25,7 @@ for (const [module, fixture] of [['portalData.ts','mock-portal.js'], ['serviceDa
 mocks['supabase.ts'] = await fs.readFile(new URL('fixtures/mock-supabase.js', import.meta.url), 'utf8');
 const server = await createServer({ configFile: false, root, plugins: [
   {name: 'isolated-ui-services', enforce: 'pre', load(id) { const normalized = id.replaceAll('\\','/'); for (const [module, code] of Object.entries(mocks)) if (normalized.endsWith(`/src/app/${module}`)) return code; }}, react(), tailwind(),
-], server: {host: '127.0.0.1', port: 0,watch:{ignored:['**/test-results/**','**/dist/**']}}});
+], optimizeDeps:{include:['@radix-ui/react-popover']},server: {host: '127.0.0.1', port: 0,watch:{ignored:['**/test-results/**','**/dist/**']}}});
 await server.listen();
 const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
 const browser = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
@@ -63,7 +64,7 @@ try {
   await call('Page.navigate',{url:`${origin}/tests/fixtures/ui.html`});
   await waitFor(`document.body.textContent.includes('Admin dashboard') && document.querySelector('table')`);
   await evaluate('window.confirm=()=>true');
-  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP)){
+  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications'].includes(process.env.UI_CHECK_GROUP)){
   await fits('Admin dashboard fits a 320 px phone');
   await check('Staff table becomes cards on mobile',`getComputedStyle(document.querySelector('table')).display==='block' && getComputedStyle(document.querySelector('thead')).display==='none'`);
   await input('input[type="search"]','No matching person');await waitFor(`document.body.textContent.includes('No requests to show')`);await click('Clear filters');await click('VIEW');
@@ -179,12 +180,13 @@ try {
   await runPriorityThreeChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,call,resize});
   await runUsabilityChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,resize});
   }
-  if(!['approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
-  if(!['scrolling','approved-services','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
-  if(!['scrolling','portal-fixes','connected','settings-audit-email','combined-settings-inbox'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
+  if(!['scrolling','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['scrolling','portal-fixes','connected','settings-audit-email','combined-settings-inbox','template-live-notifications'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='connected')await runConnectedWorkflowChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='settings-audit-email')await runSettingsAuditEmailChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='combined-settings-inbox')await runCombinedSettingsInboxChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='template-live-notifications')await runTemplateLiveNotificationChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot,call});
   if(exceptions.length)throw new Error('Browser exceptions: '+JSON.stringify(exceptions));
   await fs.writeFile(path.join(output,'ui-summary.json'),JSON.stringify({checks:checkCount,passed:true,isolated:true,realEmailsSent:0,productionWrites:0},null,2));
   console.log(`All ${checkCount} UI checks passed with isolated mock services. No real emails or database writes were made.`);

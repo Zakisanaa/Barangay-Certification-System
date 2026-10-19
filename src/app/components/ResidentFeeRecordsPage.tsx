@@ -11,9 +11,10 @@ const labels:Record<FeeRecord['status'],string>={PAID:'Payment received',EXEMPT:
 const money=(amount:number)=>`PHP ${Number(amount).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 const sorts=[['newest','Newest first'],['oldest','Oldest first'],['name_asc','Reference A–Z'],['name_desc','Reference Z–A'],['amount_high','Amount: highest first'],['amount_low','Amount: lowest first']] as const;
 
-export default function ResidentFeeRecordsPage({ownerId}:{ownerId:string}){
+export default function ResidentFeeRecordsPage({ownerId,focusReference,focusToken}:{ownerId:string;focusReference?:string;focusToken?:string}){
  const [data,setData]=useState<FeePage>({rows:[],total:0,net:0});
  const [page,setPage]=useState(0),[query,setQuery]=useState(''),[sort,setSort]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[revision,setRevision]=useState(0);
+ useEffect(()=>{if(focusReference){setQuery(focusReference);setPage(0);}},[focusReference,focusToken]);
  useEffect(()=>{
   let active=true,generation=0;
   const load=async()=>{const requested=++generation;setLoading(true);try{

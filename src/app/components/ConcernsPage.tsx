@@ -14,7 +14,7 @@ import {
   subscribeResidentConcerns,
 } from "../portalData";
 
-export default function ConcernsPage({ residentName, residentId, contact }: { residentName: string; residentId: string; contact: string }) {
+export default function ConcernsPage({ residentName, residentId, contact,focusReference,focusToken }: { residentName: string; residentId: string; contact: string;focusReference?:string;focusToken?:string }) {
   const [loading,setLoading]=useState(true);
   const [query,setQuery]=useState(""),[sort,setSort]=useState("newest");
   const [page,setPage]=useState(0),[total,setTotal]=useState(0),[loadError,setLoadError]=useState(''),[revision,setRevision]=useState(0),[saving,setSaving]=useState(false);
@@ -23,6 +23,7 @@ export default function ConcernsPage({ residentName, residentId, contact }: { re
   const [selectedConcern,setSelectedConcern]=useState<ResidentConcern|null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [form, setForm] = useState({ name: residentName, contact, category: "Service concern", message: "" });
+  useEffect(()=>{if(!focusReference)return;let active=true;void getConcernPage({owner:residentId,query:focusReference,sort:'newest',archived:null}).then(result=>{if(!active)return;const item=result.rows.find(row=>row.reference===focusReference&&row.ownerId===residentId);if(item)setSelectedConcern(item);else toast.error('This concern could not be opened. Refresh your concerns and try again.');}).catch(()=>{if(active)toast.error('Could not load the selected concern. Try again.');});return()=>{active=false;};},[focusReference,focusToken,residentId]);
 
   useEffect(() => {
     let active = true;

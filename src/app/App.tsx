@@ -28,6 +28,9 @@ import { passwordRecoveryState } from "./passwordRecoveryState";
 import { canManage } from './access';
 import { subscribeAdminTables } from './adminData';
 import type {WorkflowNavigate,WorkflowTarget} from './workflowNavigation';
+import {residentNotificationTarget,staffNotificationTarget} from './notificationNavigation';
+import type {PortalNotification} from './notificationNavigation';
+const NotificationBell=lazy(()=>import('./components/NotificationBell'));
 const StaffManagementPage=lazy(()=>import('./components/StaffManagementPage'));
 const StaffInboxPage=lazy(()=>import('./components/StaffInboxPage'));
 const OfficeQueuePage=lazy(()=>import('./components/OfficeQueuePage'));
@@ -164,6 +167,11 @@ function Portal() {
 
   const navigate=(page:Page,service?:string)=>{if(page!==activePage&&!confirmDiscardChanges())return;if(page==='book')setBookingService(service);setFocusReference(undefined);setTransactionTarget(undefined);setActivePage(page);};
   const openWorkflow:WorkflowNavigate=(page,reference,mode='record')=>{if(!confirmDiscardChanges())return;setFocusReference(reference);setTransactionTarget(reference?{reference,mode,token:crypto.randomUUID()}:undefined);setActivePage(page);};
+  const openNotification=(item:PortalNotification)=>{
+    if(loggedInAs==='admin'&&item.permission){const target=staffNotificationTarget({...item,permission:item.permission});if(target)openWorkflow(target.page,target.reference,target.mode);return;}
+    if(!confirmDiscardChanges())return;
+    const target=residentNotificationTarget(item);setFocusReference(target.reference);setTransactionTarget(target.reference?{reference:target.reference,mode:'record',token:crypto.randomUUID()}:undefined);setSidebarOpen(false);setActivePage(target.page);
+  };
   const handleLogin = (userType: UserType, name: string, account?: ResidentAccount) => {
     if (account) setResidentAccount(account);
     setLoggedInAs(userType);
@@ -262,7 +270,7 @@ function Portal() {
           >
             <Menu className="w-4 h-4" />
           </button>
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex flex-1 items-center gap-2.5 min-w-0">
             <img
               src={publicAsset("officials/brgylagasit.webp")}
               alt="Barangay Lagasit logo"
@@ -273,11 +281,12 @@ function Portal() {
               <div className="truncate text-xs text-[#53645b] leading-tight">Times: Asia/Manila</div>
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
             <div className="hidden text-xs font-bold tracking-wide text-muted-foreground sm:block">
               {PAGE_LABELS[activePage]}
             </div>
-            <div className="flex items-center gap-2 border-l border-[#c4c0b9] pl-3">
+            {residentAccount&&<Suspense fallback={<span className="h-11 w-11" aria-hidden="true"/>}><NotificationBell key={`${residentAccount.id}:${residentAccount.role}:${residentAccount.superadmin}:${residentAccount.permissions?.join(',')}`} role={residentAccount.role} scope={residentAccount.id} onOpenRecord={openNotification} onOpenInbox={loggedInAs==='admin'?()=>navigate('staff-inbox'):undefined}/></Suspense>}
+            <div className="hidden items-center gap-2 border-l border-[#c4c0b9] pl-3 sm:flex">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#edf5ee] text-sm font-bold text-[#123323]">
                 {userName.charAt(0).toUpperCase()}
               </div>
@@ -309,9 +318,9 @@ function Portal() {
             <BookPage setActivePage={page=>navigate(page)} resident={residentAccount} initialService={bookingService} />
           )}
           {activePage === "dashboard" && residentAccount?.role === "resident" && (
-            <DashboardPage userName={userName} userId={userId} resident={residentAccount} setActivePage={page=>navigate(page)} />
+            <DashboardPage userName={userName} userId={userId} resident={residentAccount} focusReference={focusReference} focusToken={transactionTarget?.token} setActivePage={page=>navigate(page)} />
           )}
-          {activePage === "fees" && residentAccount?.role === "resident" && <ResidentFeeRecordsPage key={residentAccount.id} ownerId={residentAccount.id}/>}
+          {activePage === "fees" && residentAccount?.role === "resident" && <ResidentFeeRecordsPage key={residentAccount.id} ownerId={residentAccount.id} focusReference={focusReference} focusToken={transactionTarget?.token}/>}
           {activePage === "schedule" && loggedInAs !== "admin" && <WalkInSchedulePage />}
           {activePage === "staff-concerns" && canManage(residentAccount,'concerns') && <AdminServicesPage key="concerns" initialTab="concerns" focusReference={focusReference} />}
           {activePage === "staff-residents" && canManage(residentAccount,'residents') && <AdminServicesPage key="residents" initialTab="residents" focusReference={focusReference}/>}
@@ -332,6 +341,8 @@ function Portal() {
               residentName={residentAccount.name}
               residentId={residentAccount.id}
               contact={residentAccount.contactNumber}
+              focusReference={focusReference}
+              focusToken={transactionTarget?.token}
             />
           )}
           {activePage === "profile" && residentAccount && (

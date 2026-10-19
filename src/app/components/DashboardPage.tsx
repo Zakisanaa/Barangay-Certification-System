@@ -24,6 +24,8 @@ interface DashboardPageProps {
   userName: string;
   userId: string;
   resident: ResidentAccount;
+  focusReference?: string;
+  focusToken?: string;
   setActivePage: (page: Page) => void;
 }
 
@@ -37,7 +39,7 @@ const statusStyle: Record<AppointmentRequest["status"], string> = {
   EXPIRED: "border-slate-300 bg-slate-50 text-slate-700",
 };
 
-export default function DashboardPage({ userName, userId, resident, setActivePage }: DashboardPageProps) {
+export default function DashboardPage({ userName, userId, resident, focusReference,focusToken, setActivePage }: DashboardPageProps) {
   const [loading,setLoading]=useState(true);
   const [page,setPage]=useState(0),[total,setTotal]=useState(0),[loadError,setLoadError]=useState(""),[revision,setRevision]=useState(0);
   const [query,setQuery]=useState(""),[sort,setSort]=useState("newest");
@@ -46,6 +48,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
   const [request, setRequest] = useState<AppointmentRequest | null>(null);
   const [allRequests, setAllRequests] = useState<AppointmentRequest[]>([]);
   const [showArchivedRequests, setShowArchivedRequests] = useState(false);
+  useEffect(()=>{if(!focusReference)return;let active=true;void getAppointmentRequest(focusReference).then(item=>{if(active&&item.ownerId===userId){setReference(item.reference);setRequest(item);setSearched(true);}}).catch(()=>{if(active)toast.error('This request could not be opened. Refresh your dashboard and try again.');});return()=>{active=false;};},[focusReference,focusToken,userId]);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +59,7 @@ export default function DashboardPage({ userName, userId, resident, setActivePag
         const result=await getAppointmentRequestPage({owner:userId,page,query,sort,archived:showArchivedRequests});const loaded=result.rows;const detail=request?.reference?await getAppointmentRequest(request.reference).catch(()=>null):null;
         if (active&&generation===refreshGeneration) {
           setAllRequests(loaded);setTotal(result.total);setLoadError("");
-          setRequest(previous=>previous?detail:null);
+          setRequest(previous=>previous?.reference===request?.reference?detail:previous);
         }
       } catch (error) {
         console.error("Unable to load resident requests.", error);
