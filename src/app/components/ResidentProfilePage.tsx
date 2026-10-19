@@ -116,7 +116,7 @@ export default function ResidentProfilePage({
             </button>
           </div>
         </form>
-        <div className="mt-5 space-y-5"><AccountSecurity resident={resident}/>{resident.role==='resident'&&<ResidentVerification residentId={resident.id}/>}</div>
+        <div className="mt-5 space-y-5"><AccountSecurity resident={resident} onEmailConfirmed={account=>{revision.current=account.revision;onProfileUpdated(account);}}/>{resident.role==='resident'&&<ResidentVerification residentId={resident.id}/>}</div>
       </div>
     </section>
   );

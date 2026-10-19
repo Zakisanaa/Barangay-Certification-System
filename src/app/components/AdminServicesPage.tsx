@@ -188,7 +188,6 @@ export default function AdminServicesPage({ initialTab,focusReference }: { initi
           <div className="p-4"><ListTools label="concerns" query={concernQuery} onQuery={value=>{setPage(0);setConcernQuery(value);}} sort={sort} onSort={value=>{setPage(0);setSort(value);}}/></div>
           {concerns.filter(concern => concern.archived === showArchivedConcerns).length ? (
             <div className="divide-y divide-[#e3e8e3]">
-              <div className="p-4"><ListTools label="concerns" query={concernQuery} onQuery={value=>{setPage(0);setConcernQuery(value);}} sort={sort} onSort={value=>{setPage(0);setSort(value);}}/></div>
           {concerns.filter(concern => concern.archived === showArchivedConcerns).map((concern) => (
                 <article key={concern.reference} className="grid gap-4 p-5 lg:grid-cols-[1fr_auto]">
                   <div>

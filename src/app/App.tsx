@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LogOut, Menu } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import AuthPage from "./components/AuthPage";
+import AuthLinkFeedback from './components/AuthLinkFeedback';
 import LandingPage from "./components/LandingPage";
 import Sidebar from "./components/Sidebar";
 import PageBoundary from './components/PageBoundary';
@@ -70,7 +71,9 @@ const PAGE_LABELS: Record<Page, string> = {
   "staff-banoy": "BANOY KNOWLEDGE",
 };
 
-export default function App() {
+export default function App(){return <><AuthLinkFeedback/><Portal/></>;}
+
+function Portal() {
   const staffRoute = window.location.pathname === "/staff";
   const [residentAccount, setResidentAccount] = useState<ResidentAccount | null>(() =>
     null

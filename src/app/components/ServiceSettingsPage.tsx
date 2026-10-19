@@ -21,6 +21,7 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
   const [config, setConfig] = useState<ServiceConfiguration | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [section, setSection] = useState('document-services');
   const [service, setService] = useState<DocumentService | null>(null);
   const [closure, setClosure] = useState({ closed_date: "", reason: "" });
   const officeBaseline=useRef('');
@@ -43,13 +44,13 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
       <header className={cardClass}>
         <h1 className="text-2xl font-bold text-[#122d1f]">Services & booking settings</h1>
         <p className="text-sm leading-relaxed text-[#53645b]">Set up document services, fees, required uploads, and office availability. Residents see the saved service information in booking and Banoy.</p>
-        <label className="grid gap-2 text-sm font-semibold">What would you like to manage?<select defaultValue="" className={inputClass} onChange={event=>{document.getElementById(event.target.value)?.scrollIntoView({behavior:'smooth',block:'start'});}}><option value="">Choose a feature...</option><option value="office-information">Office contact details and fee tracking</option><option value="document-services">Edit a service, its requirements, or fee</option><option value="create-service">Add a document service</option><option value="supporting-checklist">Add a required upload</option><option value="certificate-templates">Upload a certificate template</option><option value="appointment-slots">Add or change appointment times</option><option value="operating-weekdays">Choose open weekdays</option><option value="office-closures">Add a holiday or closure</option></select></label>
-        <p className="text-sm text-[#53645b]">Choose a section to jump to it. To add an item, use a suggested option or type your own. Each section has its own Save button.</p>
+        <label className="grid gap-2 text-sm font-semibold">What would you like to manage?<select aria-label="What would you like to manage?" value={section} className={inputClass} onChange={event=>setSection(event.target.value)}><option value="office-information">Office contact details and fee tracking</option><option value="document-services">Edit a service, its requirements, or fee</option><option value="create-service">Add a document service</option><option value="supporting-checklist">Add a required upload</option><option value="certificate-templates">Upload a certificate template</option><option value="appointment-slots">Add or change appointment times</option><option value="operating-weekdays">Choose open weekdays</option><option value="office-closures">Add a holiday or closure</option></select></label>
+        <p className="text-sm text-[#53645b]">Only the selected section is shown. Your unsaved entries stay here when you switch sections. Save each section to apply its changes.</p>
       </header>
       {error && <div role="alert" className={cardClass}><p className="text-red-800">{error}</p><button type="button" onClick={() => {if(confirmDiscardChanges())void load();}} className={buttonClass}>Retry loading</button></div>}
       {!config && !error && <p role="status">Loading settings…</p>}
       {config && <>
-        <form id="office-information" className={cardClass} onSubmit={event => { event.preventDefault(); void save(async()=>{await saveOfficeSettings(config.office);officeBaseline.current=JSON.stringify(config.office);}); }}>
+        <div hidden={section!=='office-information'}><form id="office-information" className={cardClass} onSubmit={event => { event.preventDefault(); void save(async()=>{await saveOfficeSettings(config.office);officeBaseline.current=JSON.stringify(config.office);}); }}>
           <h2 className="text-lg font-bold text-[#122d1f]">Office information</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {([
@@ -62,15 +63,17 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
               <input type="number" min={1} max={365} required value={config.office.booking_days_ahead} disabled={busy} className={inputClass} onChange={event => setConfig({ ...config, office: { ...config.office, booking_days_ahead: Number(event.target.value) } })} />
             </label>
           </div>
-          <label className="flex min-h-11 items-start gap-2 text-sm"><input type="checkbox" checked={config.office.fee_tracking_enabled??false} disabled={busy} onChange={event=>setConfig({...config,office:{...config.office,fee_tracking_enabled:event.target.checked}})}/>Enable fee and receipt recording for office payments.</label><p className="text-sm text-[#53645b]">Set each service amount below. This switch enables payment records; it does not collect money. Save office information to apply.</p><button disabled={busy} className={buttonClass}>Save office information</button>
-        </form>
-        <section className={cardClass}>
-          <h2 id="document-services" className="text-lg font-bold text-[#122d1f]">Document requirements and fees</h2><p className="text-sm text-[#53645b]">Choose an existing service to edit it. To add another document, choose Add a document service in the feature menu above.</p>
+          <label className="flex min-h-11 items-start gap-2 text-sm"><input type="checkbox" checked={config.office.fee_tracking_enabled??false} disabled={busy} onChange={event=>setConfig({...config,office:{...config.office,fee_tracking_enabled:event.target.checked}})}/>Enable fee and receipt recording for office payments.</label><p className="text-sm text-[#53645b]">Set each service amount in Edit a service, its requirements, or fee. This switch enables payment records; it does not collect money. Save office information to apply.</p><button disabled={busy} className={buttonClass}>Save office information</button>
+        </form></div>
+        <div hidden={!['document-services','supporting-checklist','certificate-templates'].includes(section)} className={cardClass}>
           <label className="grid gap-1.5 text-sm font-semibold">Document service
             <select aria-label="Document service" className={inputClass} value={service?.request_type ?? ""} disabled={busy} onChange={event => {if(!confirmDiscardChanges())return;setService(config.services.find(item => item.request_type === event.target.value) ?? null);}}>
               {config.services.map(item => <option key={item.request_type}>{item.request_type}</option>)}
             </select>
           </label>
+        </div>
+        <div hidden={section!=='document-services'}><section className={cardClass}>
+          <h2 id="document-services" className="text-lg font-bold text-[#122d1f]">Document requirements and fees</h2><p className="text-sm text-[#53645b]">Choose an existing service to edit it. To add another document, choose Add a document service in the feature menu above.</p>
           {service && <form className="space-y-4" onSubmit={event => { event.preventDefault(); void save(async () => {
             await saveDocumentService(service);
             setConfig(previous => previous && ({ ...previous, services: previous.services.map(item => item.request_type === service.request_type ? service : item) }));
@@ -89,10 +92,10 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
             {!getCertificateTemplates(service.request_type).length && <p className="text-sm text-[#53645b]">This service has no matching certificate template. Booking offers hardcopy only.</p>}
             <button disabled={busy} className={buttonClass}>Save document service</button>
           </form>}
-        </section>
-        <section className={cardClass}>
+        </section></div>
+        <div hidden={section!=='office-closures'}><section className={cardClass}>
           <h2 id="office-closures" className="text-lg font-bold text-[#122d1f]">Holidays and office closures</h2>
-          <p className="text-sm text-[#53645b]">Operating weekdays are configured below. Add specific dates when appointments cannot be accepted.</p>
+          <p className="text-sm text-[#53645b]">Add specific dates when appointments cannot be accepted. To change regular opening days, choose Choose open weekdays in the feature menu.</p>
           <form className="grid gap-3 sm:grid-cols-[180px_1fr_auto]" onSubmit={event => { event.preventDefault(); void save(async () => {
             const impacted=await adminRpc<{rows:{reference:string;full_name:string}[];total:number}>('affected_appointments',{p_date:closure.closed_date});setClosureImpact(impacted);if(impacted.total&&!closureReviewed)throw new Error('Review the affected bookings and confirm the closure before saving.');
             const saved=await saveOfficeClosure({ ...closure,revision:config.closures.find(item=>item.closed_date===closure.closed_date)?.revision, reason: closure.reason.trim() },closureReviewed);
@@ -108,8 +111,8 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
             <p className="min-w-0 break-words text-sm"><strong>{item.closed_date}</strong> · {item.reason}</p>
             <button type="button" disabled={busy} className="min-h-11 rounded border border-red-200 px-3 text-sm font-semibold text-red-800" onClick={() => void save(async () => { await removeOfficeClosure(item.closed_date,item.revision); setConfig(previous => previous && ({ ...previous, closures: previous.closures.filter(closure => closure.closed_date !== item.closed_date) })); })}>Remove closure</button>
           </div>)}
-        </section>
-        <ServiceEditorExtensions configuration={config} selectedService={service?.request_type??''} onChanged={()=>void load()} onOpenRequest={onOpenRequest}/>
+        </section></div>
+        <ServiceEditorExtensions section={section} configuration={config} selectedService={service?.request_type??''} onChanged={()=>void load()} onOpenRequest={onOpenRequest}/>
       </>}
     </div>
   );

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { passwordRecoveryState } from "./passwordRecoveryState";
+import './authLinkNotice';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
