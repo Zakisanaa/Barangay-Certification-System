@@ -176,7 +176,7 @@ export default function AuthPage({
             <button
               type="button"
               onClick={onBackToPublicSite}
-              className="mb-5 text-sm font-semibold text-[#123323] underline underline-offset-4"
+              className="mb-5 min-h-11 text-sm font-semibold text-[#123323] underline underline-offset-4"
             >
               Back to public site
             </button>

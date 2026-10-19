@@ -2,7 +2,8 @@ import { useEffect,useState } from 'react';
 import { requireSupabase,isSupabaseConfigured } from './supabase';
 import { publicAsset } from './publicAsset';
 import { subscribeAdminTables } from './adminData';
-import type { Official,SiteContent } from './adminData';
+import type { LeadershipImage,Official,SiteContent } from './adminData';
+export const defaultLeadership:LeadershipImage={image:'officials/group photo.jpg',alt:'Barangay Lagasit officials'};
 export const defaultOfficials:Official[]=[
   {
     name: "Punong Barangay Perlita Lugares",
@@ -70,6 +71,6 @@ export function usePublicSiteContent(){
  const [records,setRecords]=useState<SiteContent[]>([]);
  useEffect(()=>{if(!isSupabaseConfigured)return;let alive=true;const load=async()=>{try{const {data,error}=await requireSupabase().from('site_content').select('*');if(error)throw error;if(alive)setRecords(data);}catch{console.error('Could not refresh public site content.');}};void load();const unsubscribe=subscribeAdminTables(['site_content'],()=>void load());return()=>{alive=false;unsubscribe();};},[]);
  const get=(key:string)=>records.find(item=>item.key===key);
- return {records,officials:(get('officials')?.value as Official[]|undefined)??defaultOfficials,about:(get('about')?.value as string|undefined)??defaultPublicText.about,mission:(get('mission')?.value as string|undefined)??defaultPublicText.mission,vision:(get('vision')?.value as string|undefined)??defaultPublicText.vision,missionPublished:!!get('mission'),visionPublished:!!get('vision')};
+ return {records,leadership:(get('leadership')?.value as LeadershipImage|undefined)??defaultLeadership,officials:(get('officials')?.value as Official[]|undefined)??defaultOfficials,about:(get('about')?.value as string|undefined)??defaultPublicText.about,mission:(get('mission')?.value as string|undefined)??defaultPublicText.mission,vision:(get('vision')?.value as string|undefined)??defaultPublicText.vision,missionPublished:!!get('mission'),visionPublished:!!get('vision')};
 }
 

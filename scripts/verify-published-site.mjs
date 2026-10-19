@@ -30,6 +30,8 @@ for (const route of ['/', '/staff']) {
   }
   for(const marker of ['Additional document uploads:','ADDITIONAL FILES','office_transaction_list','Awaiting first fee record','Next steps and related records','Select for issuance','Related settings are together.','1. Document details and fee','2. Required uploads','3. Certificate template (optional)','Choose a saved certificate document','Recent notification updates','resident_notification_feed','Mark these read','Resident activity notifications','Unread first','Resident feature','Retry audit history','Awaiting email confirmation:','Resend confirmation links','This confirmation link has expired'])assert.ok(bundle.includes(marker),`Published workflows must include ${marker}`);
   console.log(`PASS: ${route} serves the admin/product frontend connected to the correct Supabase project`);
+  for(const marker of ['Publish leadership image','Back to public site','Your email address has been updated.'])assert.ok(bundle.includes(marker),`Published interface must include ${marker}`);
+  assert.ok(!bundle.includes('If your email change is still pending, confirm the newest link'),'The stale email confirmation message must be removed');
 }
 const profile = await fs.mkdtemp(path.join(output, 'production-chrome-'));
 const chrome = spawn(process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe', [
@@ -104,6 +106,18 @@ try {
     await fs.writeFile(path.join(output, `${name}.png`), Buffer.from(screenshot.data, 'base64'));
     console.log(`PASS: ${route} renders correctly on the live site at 320px`);
   }
+  await call('Page.navigate',{url:origin+'/#message=Confirmation+link+accepted.+Please+proceed+to+confirm+link+sent+to+the+other+email'});
+  await waitFor(`document.querySelector('[aria-label="Email confirmation"]')?.textContent.includes('other inbox')&&window.location.hash===''`);
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Dismiss message').click()`);
+  await call('Page.reload');
+  await waitFor(`performance.getEntriesByType('navigation')[0]?.type==='reload'&&document.body.textContent.includes('Barangay Contact Information')`);
+  assert.ok(await evaluate(`!document.querySelector('[aria-label="Email confirmation"]')`),'Dismissed email feedback must stay cleared after refresh');
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='SIGN IN / REGISTER').click()`);
+  await waitFor(`document.querySelector('input[autocomplete="current-password"]')`);
+  assert.ok(await evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Back to public site')`),'Resident sign-in must link back to the public landing page');
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Back to public site').click()`);
+  await waitFor(`document.body.textContent.includes('Barangay services, made easier.')`);
+  console.log('PASS: Live email feedback stays dismissed after refresh; resident sign-in returns to the landing page.');
   assert.deepEqual(exceptions, [], 'Published pages must have no uncaught JavaScript errors');
   assert.deepEqual(apiFailures, [], 'Live public Supabase calls must succeed');
   assert.ok(!loadedJs.some(url=>/\/(charts-|AdminPage-|BookPage-)/.test(url)),'Public and staff sign-in pages must not download portal or chart bundles');

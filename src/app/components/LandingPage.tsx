@@ -134,8 +134,8 @@ export default function LandingPage({ onContinue }: LandingPageProps) {
               <div className="text-xs font-bold tracking-[0.18em] text-[#67766b] uppercase">Barangay Leadership</div>
             </div>
             <img
-              src={publicAsset("officials/group photo.jpg")}
-              alt="Barangay Lagasit officials"
+              src={getOfficialImageUrl(publicContent.leadership.image)}
+              alt={publicContent.leadership.alt}
               className="h-[260px] w-full object-contain bg-white sm:h-[360px] lg:h-[420px]"
             />
             <div className="mt-3 border-t border-[#c9d1ca] pt-2 text-xs font-bold tracking-[0.12em] text-[#51635d] uppercase">

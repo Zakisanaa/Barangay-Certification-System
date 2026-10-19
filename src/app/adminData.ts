@@ -18,7 +18,8 @@ export interface CertificateRegister { id: string; display_reference?:string; re
 export interface FeeRecord { id: string; display_reference?:string; corrected?:boolean; correction_status?:string|null; payment_method?:string; payer_reference?:string|null; request_reference: string|null; walk_in_id: string|null; amount: number; currency: string; status: 'PAID'|'EXEMPT'|'WAIVED'|'REFUNDED'|'VOIDED'; receipt_reference: string|null; note: string; recorded_at: string; previous_record: string|null }
 export interface StaffNotification { outbox_id?:string|null; id: string; permission: StaffPermission; kind: string; reference: string|null; title: string; body: string; created_at: string }
 export interface Official { name: string; role: string; image: string }
-export interface SiteContent { key: 'mission'|'vision'|'about'|'officials'; value: string|Official[]; version: number; updated_at: string }
+export interface LeadershipImage { image:string;alt:string }
+export interface SiteContent { key: 'mission'|'vision'|'about'|'officials'|'leadership'; value: string|Official[]|LeadershipImage; version: number; updated_at: string }
 export interface AffectedAppointment { reference: string; full_name: string; appointment_date: string; time_slot: string; status: string }
 export interface AuditRecord { id: string; actor_name: string; entity: string; record_id: string; action: string; before_data: Record<string,unknown>|null; after_data: Record<string,unknown>|null; created_at: string }
 export const timeInManila = (value: string) => new Date(value).toLocaleString('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'});

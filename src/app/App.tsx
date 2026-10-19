@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { LogOut, Menu } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import AuthPage from "./components/AuthPage";
-import AuthLinkFeedback from './components/AuthLinkFeedback';
+const AuthLinkFeedback=lazy(()=>import('./components/AuthLinkFeedback'));
 import LandingPage from "./components/LandingPage";
 import Sidebar from "./components/Sidebar";
 import PageBoundary from './components/PageBoundary';
@@ -74,7 +74,7 @@ const PAGE_LABELS: Record<Page, string> = {
   "staff-banoy": "BANOY KNOWLEDGE",
 };
 
-export default function App(){return <><AuthLinkFeedback/><Portal/></>;}
+export default function App(){return <><Suspense fallback={null}><AuthLinkFeedback/></Suspense><Portal/></>;}
 
 function Portal() {
   const staffRoute = window.location.pathname === "/staff";
@@ -229,10 +229,10 @@ function Portal() {
         <AuthPage
           onLogin={handleLogin}
           adminOnly={staffRoute}
-          onBackToPublicSite={staffRoute ? () => {
+          onBackToPublicSite={() => {
             window.history.replaceState(null, "", "/");
             setShowLanding(true);
-          } : undefined}
+          }}
         />
       </div>
     );

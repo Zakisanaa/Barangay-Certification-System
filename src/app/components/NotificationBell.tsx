@@ -11,7 +11,10 @@ export default function NotificationBell({role,scope,onOpenRecord,onOpenInbox}:{
  const [latest,setLatest]=useState<Feed>(empty),[older,setOlder]=useState<Feed>(empty),[open,setOpen]=useState(false),[page,setPage]=useState(0),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[error,setError]=useState(''),[revision,setRevision]=useState(0);
  const callbacks=useRef({onOpenRecord,onOpenInbox});callbacks.current={onOpenRecord,onOpenInbox};
  const mounted=useRef(true);
- const read=(value:number)=>adminRpc<Feed>(role==='staff'?'staff_inbox':'resident_notification_feed',{p_page:value});
+ const read=async(value:number)=>{
+  const feed=await adminRpc<Feed>(role==='staff'?'staff_inbox':'resident_notification_feed',{p_page:value});
+  return role==='resident'?{...feed,rows:feed.rows.map(item=>({...item,body:item.body.replace(/\r?\n\s*Sign in to (?:the Barangay portal|the portal) to (?:view your request|view it|reply|view attachments and reply|view the update)\.\s*$/,'')}))}:feed;
+ };
  const mark=async(ids:string[])=>{await adminRpc(role==='staff'?'mark_staff_notifications_read':'mark_resident_notifications_read',{p_ids:ids});};
  const openRecord=async(item:PortalNotification)=>{if(busy)return;setBusy(true);try{await mark([item.id]);if(mounted.current){setRevision(value=>value+1);setOpen(false);callbacks.current.onOpenRecord(item);}}catch(cause){if(mounted.current)setError(cause instanceof Error?cause.message:'Could not open this notification.');}finally{if(mounted.current)setBusy(false);}};
  const openRef=useRef(openRecord);openRef.current=openRecord;
