@@ -16,7 +16,7 @@ const inputClass = "min-h-11 w-full rounded-md border border-[#c9d1ca] bg-white 
 const buttonClass = "min-h-11 rounded-md bg-[#123323] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50";
 const cardClass = "space-y-4 rounded-lg border border-[#d9e2da] bg-white p-4 sm:p-6";
 
-export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(reference:string)=>void}) {
+export default function ServiceSettingsPage({onOpenRequest,focusService}:{onOpenRequest?:(reference:string)=>void;focusService?:string}) {
   const [closureImpact,setClosureImpact]=useState<{rows:{reference:string;full_name:string}[];total:number}|null>(null),[closureReviewed,setClosureReviewed]=useState(false);const lock=useRef(false);
   const [config, setConfig] = useState<ServiceConfiguration | null>(null);
   const [error, setError] = useState("");
@@ -28,6 +28,8 @@ export default function ServiceSettingsPage({onOpenRequest}:{onOpenRequest?:(ref
   const [closure, setClosure] = useState({ closed_date: "", reason: "" });
   const officeBaseline=useRef('');
   const current=useRef({config,service});current.current={config,service};
+  const appliedFocus=useRef('');
+  useEffect(()=>{if(!config||!focusService||appliedFocus.current===focusService)return;const selected=config.services.find(item=>item.request_type===focusService);if(selected){appliedFocus.current=focusService;setService(selected);setSection('document-services');setCreating(false);}},[focusService,config]);
   useUnsavedChanges(!!config&&(JSON.stringify(config.office)!==officeBaseline.current||!!service&&JSON.stringify(service)!==JSON.stringify(config.services.find(item=>item.request_type===service.request_type)))||!!closure.reason||!!closure.closed_date);
   const load = async (createdService?:string) => {
     try { const data = await getServiceConfiguration(); const existing=current.current;const officeDirty=!!existing.config&&JSON.stringify(existing.config.office)!==officeBaseline.current;const serviceDirty=!!existing.service&&JSON.stringify(existing.service)!==JSON.stringify(existing.config?.services.find(item=>item.request_type===existing.service?.request_type));officeBaseline.current=JSON.stringify(data.office);setConfig({...data,office:officeDirty?existing.config!.office:data.office});setService(previous=>createdService?data.services.find(item=>item.request_type===createdService)??null:serviceDirty?previous:data.services.find(item=>item.request_type===previous?.request_type)??data.services[0]??null);if(createdService)setCreating(false);setError(""); }

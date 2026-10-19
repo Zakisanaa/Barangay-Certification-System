@@ -30,7 +30,7 @@ for (const route of ['/', '/staff']) {
   }
   for(const marker of ['Additional document uploads:','ADDITIONAL FILES','office_transaction_list','Awaiting first fee record','Next steps and related records','Select for issuance','Related settings are together.','1. Document details and fee','2. Required uploads','3. Certificate template (optional)','Choose a saved certificate document','Recent notification updates','resident_notification_feed','Mark these read','Resident activity notifications','Unread first','Resident feature','Retry audit history','Awaiting email confirmation:','Resend confirmation links','This confirmation link has expired'])assert.ok(bundle.includes(marker),`Published workflows must include ${marker}`);
   console.log(`PASS: ${route} serves the admin/product frontend connected to the correct Supabase project`);
-  for(const marker of ['Publish leadership image','Back to public site','Your email address has been updated.','image (optional)','image description','Preview your changes below'])assert.ok(bundle.includes(marker),`Published interface must include ${marker}`);
+  for(const marker of ['Publish leadership image','Back to public site','Your email address has been updated.','image (optional)','image description','Preview your changes below','Download Word template (DOCX)','Walk-in document preparation','Open request and delivery'])assert.ok(bundle.includes(marker),`Published interface must include ${marker}`);
   assert.ok(!bundle.includes('If your email change is still pending, confirm the newest link'),'The stale email confirmation message must be removed');
 }
 const profile = await fs.mkdtemp(path.join(output, 'production-chrome-'));

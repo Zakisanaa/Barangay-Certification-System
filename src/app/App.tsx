@@ -326,7 +326,7 @@ function Portal() {
           {activePage === "staff-residents" && canManage(residentAccount,'residents') && <AdminServicesPage key="residents" initialTab="residents" focusReference={focusReference}/>}
           {activePage === "staff-schedule" && canManage(residentAccount,'schedules') && <AdminServicesPage key="staff-schedule" initialTab="schedule" />}
           {activePage === "staff-news" && canManage(residentAccount,'content') && <LandingNewsManager />}
-          {activePage === "staff-settings" && canManage(residentAccount,'settings') && <ServiceSettingsPage onOpenRequest={canManage(residentAccount,'requests')?reference=>{if(!confirmDiscardChanges())return;setFocusReference(reference);setActivePage('admin');}:undefined}/>}
+          {activePage === "staff-settings" && canManage(residentAccount,'settings') && <ServiceSettingsPage focusService={focusReference} onOpenRequest={canManage(residentAccount,'requests')?reference=>{if(!confirmDiscardChanges())return;setFocusReference(reference);setActivePage('admin');}:undefined}/>}
           {activePage === "staff-banoy" && canManage(residentAccount,'knowledge') && <ChatbotKnowledgePage focusReference={focusReference}/>}
           {activePage==='staff-inbox'&&residentAccount?.role==='staff'&&<StaffInboxPage onNavigate={openWorkflow}/>}
           {activePage==='staff-queue'&&residentAccount&&canManage(residentAccount,'requests')&&<OfficeQueuePage account={residentAccount} focusDate={focusReference} onNavigate={openWorkflow} onOpenRequest={reference=>openWorkflow('admin',reference)}/>}

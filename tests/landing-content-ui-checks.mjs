@@ -34,7 +34,7 @@ export async function runLandingContentChecks({evaluate,waitFor,check,click,inpu
  await evaluate(`window.resetReview('none','/')`);await waitFor(`document.querySelector('img[alt="Barangay Lagasit officials"]')`);
  await check('Superadmin can restore the original leadership photo',`document.querySelector('img[alt="Barangay Lagasit officials"]').getAttribute('src').includes('group')`);
 
- await evaluate(`for(const key of ['mission','vision'])window.__review.site_content.push({key,value:'Existing office-approved '+key,version:1});window.resetReview('staff','/staff')`);
+ await evaluate(`window.__review.site_content=window.__review.site_content.filter(row=>!['mission','vision'].includes(row.key));for(const key of ['mission','vision'])window.__review.site_content.push({key,value:'Existing office-approved '+key,version:1});window.resetReview('staff','/staff')`);
  await waitFor(`document.querySelector('aside')`);await navigate('Public site content');
  await waitFor(`document.querySelector('form[aria-label="Barangay mission"] textarea')?.value==='Existing office-approved mission'`);
  await check('Existing text-only mission and vision remain editable',`document.querySelector('form[aria-label="Barangay vision"] textarea').value==='Existing office-approved vision'`);

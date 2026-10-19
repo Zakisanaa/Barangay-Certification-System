@@ -1,3 +1,4 @@
+import {runOfficeQueueDocumentChecks} from './office-queue-documents-ui-checks.mjs';
 import {runLandingContentChecks} from './landing-content-ui-checks.mjs';
 import {runEmailConfirmationChecks} from './email-confirmation-ui-checks.mjs';
 import {runTemplateLiveNotificationChecks} from './template-live-notifications-ui-checks.mjs';
@@ -66,7 +67,7 @@ try {
   await call('Page.navigate',{url:`${origin}/tests/fixtures/ui.html`});
   await waitFor(`document.body.textContent.includes('Admin dashboard') && document.querySelector('table')`);
   await evaluate('window.confirm=()=>true');
-  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content'].includes(process.env.UI_CHECK_GROUP)){
+  if(!['scrolling','portal-fixes','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content','office-queue-documents'].includes(process.env.UI_CHECK_GROUP)){
   await fits('Admin dashboard fits a 320 px phone');
   await check('Staff table becomes cards on mobile',`getComputedStyle(document.querySelector('table')).display==='block' && getComputedStyle(document.querySelector('thead')).display==='none'`);
   await input('input[type="search"]','No matching person');await waitFor(`document.body.textContent.includes('No requests to show')`);await click('Clear filters');await click('VIEW');
@@ -182,15 +183,16 @@ try {
   await runPriorityThreeChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,call,resize});
   await runUsabilityChecks({evaluate,waitFor,check,click,input,navigate,fits,screenshot,resize});
   }
-  if(!['approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
-  if(!['scrolling','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
-  if(!['scrolling','portal-fixes','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content','office-queue-documents'].includes(process.env.UI_CHECK_GROUP))await runScrollingChecks({evaluate,waitFor,check,click,navigate,resize,screenshot});
+  if(!['scrolling','approved-services','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content','office-queue-documents'].includes(process.env.UI_CHECK_GROUP))await runResidentFeeChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
+  if(!['scrolling','portal-fixes','connected','settings-audit-email','combined-settings-inbox','template-live-notifications','email-confirmation','landing-content','office-queue-documents'].includes(process.env.UI_CHECK_GROUP))await runApprovedServiceChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='connected')await runConnectedWorkflowChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='settings-audit-email')await runSettingsAuditEmailChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='combined-settings-inbox')await runCombinedSettingsInboxChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='landing-content')await runLandingContentChecks({evaluate,waitFor,check,click,input,navigate,fits,resize,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='email-confirmation')await runEmailConfirmationChecks({evaluate,waitFor,check,click,resize,screenshot});
   if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='template-live-notifications')await runTemplateLiveNotificationChecks({evaluate,waitFor,check,click,input,navigate,resize,fits,screenshot,call});
+  if(!process.env.UI_CHECK_GROUP||process.env.UI_CHECK_GROUP==='office-queue-documents')await runOfficeQueueDocumentChecks({evaluate,waitFor,check,click,input,navigate,fits,resize,screenshot});
   if(exceptions.length)throw new Error('Browser exceptions: '+JSON.stringify(exceptions));
   await fs.writeFile(path.join(output,'ui-summary.json'),JSON.stringify({checks:checkCount,passed:true,isolated:true,realEmailsSent:0,productionWrites:0},null,2));
   console.log(`All ${checkCount} UI checks passed with isolated mock services. No real emails or database writes were made.`);

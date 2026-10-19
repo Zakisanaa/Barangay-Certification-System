@@ -6,7 +6,7 @@ export async function getAppointmentRequests(owner) { return structuredClone(sta
 export async function getAppointmentRequest(reference) { const request=state().requests.find(request=>request.reference===reference);if(!request)throw new Error('Request not found');return structuredClone(request); }
 export function subscribeAppointmentRequests(callback) { state().refreshRequests = callback; const stop=reliableSubscription(['appointment_requests'],callback);return () => { stop();state().refreshRequests = null; }; }
 export async function addAppointmentRequest(request,attachments=[]) { if(!request.schoolIdImagePath)throw new Error('Attach an image of your valid ID before booking an appointment.');if(state().failBookingSave)throw new Error('Simulated booking save failure.');state().requests.push({...request});state().bookingSupportingUploads=structuredClone(attachments); }
-export async function getCertificateTemplateFile(name) { state().downloads.push(name); return new TextEncoder().encode('mock DOCX').buffer; }
+export async function getCertificateTemplateFile(name) { if(state().failTemplateDownload)throw new Error('Could not download the Word template. Try again.');state().downloads.push(name); return new TextEncoder().encode('mock DOCX').buffer; }
 export async function sendResidentNotification(input) {
   state().notifications.push(input);
   if(input.type==='appointment_pdf'){
